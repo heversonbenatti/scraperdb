@@ -8,32 +8,46 @@ export default function PriceTracker() {
   useEffect(() => {
     const fetchLowestPrices = async () => {
       try {
-        // Query to get the lowest current price for each category
-        const { data, error } = await supabase
+        // Get the lowest price for each product
+        const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select(`
             id,
             name,
             category,
             website,
-            product_link,
-            prices (price)
+            product_link
           `)
-          .order('created_at', { foreignTable: 'prices', ascending: true })
-          .limit(1, { foreignTable: 'prices' })
 
-        if (error) throw error
+        if (productsError) throw productsError
 
-        // Process the data to get the lowest price per category
+        // Get the most recent price for each product
+        const pricesPromises = productsData.map(async (product) => {
+          const { data: priceData, error: priceError } = await supabase
+            .from('prices')
+            .select('price, collected_at')
+            .eq('product_id', product.id)
+            .order('collected_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          return {
+            ...product,
+            price: priceData?.price || 0,
+            lastUpdated: priceData?.collected_at
+          }
+        })
+
+        const productsWithPrices = await Promise.all(pricesPromises)
+
+        // Find the lowest price per category
         const categories = {}
-        data.forEach(product => {
-          if (!product.prices || product.prices.length === 0) return
-          
-          const currentPrice = product.prices[0].price
-          if (!categories[product.category] || currentPrice < categories[product.category].price) {
+        productsWithPrices.forEach(product => {
+          if (!categories[product.category] || 
+              product.price < categories[product.category].price) {
             categories[product.category] = {
               name: product.name,
-              price: currentPrice,
+              price: product.price,
               website: product.website,
               link: product.product_link,
               category: product.category
