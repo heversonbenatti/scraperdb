@@ -124,8 +124,7 @@ export default function PriceTracker() {
 
   return (
     <div className="container">
-      <h1>PC Parts Price Tracker</h1>
-      <p>Lowest prices by category - Updates in realtime</p>
+      <h1>lowest prices</h1>
       
       <div className="layout">
         <div className="price-grid">
@@ -148,37 +147,6 @@ export default function PriceTracker() {
               </div>
             </div>
           ))}
-        </div>
-
-        <div className="build-summary">
-          <h2>Your PC Build</h2>
-          {Object.keys(selectedParts).length === 0 ? (
-            <p>Select parts to see your build total</p>
-          ) : (
-            <>
-              <ul className="parts-list">
-                {Object.values(selectedParts).map((part, index) => (
-                  <li key={index} className="part-item">
-                    <span>{part.name}</span>
-                    <span>R$ {part.price.toFixed(2)}</span>
-                    <button 
-                      onClick={() => handleRemovePart(part.category)}
-                      className="remove-btn"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <div className="total-cost">
-                <strong>Total:</strong>
-                <span>R$ {totalCost.toFixed(2)}</span>
-              </div>
-              <button className="save-build-btn">
-                Save This Build
-              </button>
-            </>
-          )}
         </div>
       </div>
 
