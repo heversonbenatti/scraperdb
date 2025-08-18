@@ -67,7 +67,8 @@ export default function PriceTracker() {
           }
         })
 
-        const productsWithPrices = await Promise.all(pricesPromises)
+        const productsWithPrices = (await Promise.all(pricesPromises))
+          .filter(product => product.price > 0);
         updateLowestPrices(productsWithPrices)
         
         // Fetch search configurations
