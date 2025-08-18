@@ -5,8 +5,6 @@ import { useEffect, useState } from 'react'
 export default function PriceTracker() {
   const [lowestPrices, setLowestPrices] = useState([])
   const [loading, setLoading] = useState(true)
-  const [totalCost, setTotalCost] = useState(0)
-  const [selectedParts, setSelectedParts] = useState({})
   const [searchConfigs, setSearchConfigs] = useState([])
   const [newSearch, setNewSearch] = useState({
     search_text: '',
@@ -141,27 +139,6 @@ export default function PriceTracker() {
     }
   }, [])
 
-  // Calculate total cost when selected parts change
-  useEffect(() => {
-    const sum = Object.values(selectedParts).reduce((total, part) => total + part.price, 0)
-    setTotalCost(sum)
-  }, [selectedParts])
-
-  const handleSelectPart = (part) => {
-    setSelectedParts(prev => ({
-      ...prev,
-      [part.category]: part
-    }))
-  }
-
-  const handleRemovePart = (category) => {
-    setSelectedParts(prev => {
-      const newParts = { ...prev }
-      delete newParts[category]
-      return newParts
-    })
-  }
-
   // Search configuration functions
   const addSearchConfig = async () => {
     if (!newSearch.search_text || !newSearch.keywords || !newSearch.category) {
@@ -280,51 +257,20 @@ export default function PriceTracker() {
     <div className="container">
       <h1>PC Part Price Tracker</h1>
       
-      <div className="layout">
-        <div className="price-grid">
-          {lowestPrices.map((item, index) => (
-            <div key={index} className={`price-card ${selectedParts[item.category] ? 'selected' : ''}`}>
-              <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
-              <p className="product-name">{item.name}</p>
-              <p className="price">R$ {item.price.toFixed(2)}</p>
-              <p className="store">Store: {item.website}</p>
-              <div className="actions">
-                <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
-                  View Product
-                </a>
-                <button 
-                  onClick={() => handleSelectPart(item)}
-                  className="select-btn"
-                >
-                  {selectedParts[item.category] ? 'Selected' : 'Select'}
-                </button>
-              </div>
+      <div className="price-grid">
+        {lowestPrices.map((item, index) => (
+          <div key={index} className="price-card">
+            <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
+            <p className="product-name">{item.name}</p>
+            <p className="price">R$ {item.price.toFixed(2)}</p>
+            <p className="store">Store: {item.website}</p>
+            <div className="actions">
+              <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
+                View Product
+              </a>
             </div>
-          ))}
-        </div>
-
-        <div className="build-summary">
-          <h2>Your Build</h2>
-          <ul className="parts-list">
-            {Object.entries(selectedParts).map(([category, part]) => (
-              <li key={category} className="part-item">
-                <span>{category.replace('_', ' ')}: {part.name}</span>
-                <span>R$ {part.price.toFixed(2)}</span>
-                <button 
-                  onClick={() => handleRemovePart(category)}
-                  className="remove-btn"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="total-cost">
-            <span>Total:</span>
-            <span>R$ {totalCost.toFixed(2)}</span>
           </div>
-          <button className="save-build-btn">Save Build</button>
-        </div>
+        ))}
       </div>
 
       <div className="search-management">
@@ -537,15 +483,11 @@ export default function PriceTracker() {
           margin-bottom: 2rem;
           color: #a5a5a5;
         }
-        .layout {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 2rem;
-        }
         .price-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 1.5rem;
+          margin-bottom: 2rem;
         }
         .price-card {
           border: 1px solid #333;
@@ -555,10 +497,6 @@ export default function PriceTracker() {
           box-shadow: 0 2px 4px rgba(0,0,0,0.3);
           transition: all 0.2s;
           color: #e0e0e0;
-        }
-        .price-card.selected {
-          border: 2px solid #0070f3;
-          background-color: #1a2a3a;
         }
         .price-card h2 {
           margin-top: 0;
@@ -591,81 +529,11 @@ export default function PriceTracker() {
           border-radius: 4px;
           text-decoration: none;
           transition: background-color 0.2s;
+          width: 100%;
+          text-align: center;
         }
         .link:hover {
           background-color: #1864ab;
-        }
-        .select-btn {
-          padding: 0.5rem 1rem;
-          background-color: #2b8a3e;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        .select-btn:hover {
-          background-color: #2f9e44;
-        }
-        .build-summary {
-          background-color: #1e1e1e;
-          padding: 1.5rem;
-          border-radius: 8px;
-          height: fit-content;
-          position: sticky;
-          top: 1rem;
-          border: 1px solid #333;
-          color: #e0e0e0;
-        }
-        .build-summary h2 {
-          color: #ffffff;
-          margin-top: 0;
-        }
-        .parts-list {
-          list-style: none;
-          padding: 0;
-          margin: 0 0 1.5rem;
-        }
-        .part-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid #333;
-        }
-        .remove-btn {
-          background: none;
-          border: none;
-          color: #ff6b6b;
-          cursor: pointer;
-          font-size: 1.2rem;
-          padding: 0 0.5rem;
-          transition: color 0.2s;
-        }
-        .remove-btn:hover {
-          color: #ff8787;
-        }
-        .total-cost {
-          display: flex;
-          justify-content: space-between;
-          font-size: 1.2rem;
-          margin: 1rem 0;
-          padding-top: 1rem;
-          border-top: 1px solid #333;
-          color: #ffffff;
-        }
-        .save-build-btn {
-          width: 100%;
-          padding: 0.75rem;
-          background-color: #495057;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        .save-build-btn:hover {
-          background-color: #3e444a;
         }
         .loading {
           text-align: center;
