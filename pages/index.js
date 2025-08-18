@@ -408,6 +408,9 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
+        body {
+          color: black;
+        }
         .container {
           max-width: 1400px;
           margin: 0 auto;
