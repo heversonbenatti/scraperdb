@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useEffect, useState } from 'react'
 
 export default function PriceTracker() {
+  const [builds, setBuilds] = useState([])
   const [lowestPrices, setLowestPrices] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchConfigs, setSearchConfigs] = useState([])
@@ -17,11 +18,26 @@ export default function PriceTracker() {
     },
     is_active: true
   })
+  const [newBuild, setNewBuild] = useState({
+    name: '',
+    categories: []
+  })
+  const [selectedBuild, setSelectedBuild] = useState(null)
+  const [showBuildForm, setShowBuildForm] = useState(false)
 
   // Fetch initial data
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
+        // Fetch builds first
+        const { data: buildsData, error: buildsError } = await supabase
+          .from('builds')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        if (buildsError) throw buildsError
+        setBuilds(buildsData || [])
+
         // Fetch products and prices
         const { data: productsData, error: productsError } = await supabase
           .from('products')
@@ -133,11 +149,94 @@ export default function PriceTracker() {
       })
       .subscribe()
 
+    const buildsSubscription = supabase
+      .channel('build-changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'builds'
+      }, payload => {
+        if (payload.eventType === 'INSERT') {
+          setBuilds(prev => [payload.new, ...prev])
+        } else if (payload.eventType === 'UPDATE') {
+          setBuilds(prev => prev.map(build => 
+            build.id === payload.new.id ? payload.new : build
+          ))
+        } else if (payload.eventType === 'DELETE') {
+          setBuilds(prev => prev.filter(build => build.id !== payload.old.id))
+        }
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(productsSubscription)
       supabase.removeChannel(configsSubscription)
+      supabase.removeChannel(buildsSubscription)
     }
   }, [])
+
+  // Calculate total price for a build
+  const calculateBuildTotal = (buildCategories) => {
+    if (!buildCategories || !lowestPrices.length) return 0
+    
+    return buildCategories.reduce((total, category) => {
+      const categoryItem = lowestPrices.find(item => item.category === category)
+      return total + (categoryItem?.price || 0)
+    }, 0)
+  }
+
+  // Build management functions
+  const createBuild = async () => {
+    if (!newBuild.name || newBuild.categories.length === 0) {
+      alert('Build name and at least one category are required')
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('builds')
+      .insert([{
+        name: newBuild.name,
+        categories: newBuild.categories
+      }])
+      .select()
+
+    if (!error) {
+      setNewBuild({
+        name: '',
+        categories: []
+      })
+      setShowBuildForm(false)
+    } else {
+      console.error('Error creating build:', error)
+    }
+  }
+
+  const toggleCategoryInBuild = (category) => {
+    setNewBuild(prev => {
+      if (prev.categories.includes(category)) {
+        return {
+          ...prev,
+          categories: prev.categories.filter(c => c !== category)
+        }
+      } else {
+        return {
+          ...prev,
+          categories: [...prev.categories, category]
+        }
+      }
+    })
+  }
+
+  const deleteBuild = async (id) => {
+    const { error } = await supabase
+      .from('builds')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting build:', error)
+    }
+  }
 
   // Search configuration functions
   const addSearchConfig = async () => {
@@ -253,24 +352,227 @@ export default function PriceTracker() {
 
   if (loading) return <div className="loading">Loading...</div>
 
+  if (selectedBuild) {
+    // View for a specific build
+    const buildCategories = selectedBuild.categories || []
+    const buildItems = buildCategories.map(category => 
+      lowestPrices.find(item => item.category === category))
+    const totalPrice = calculateBuildTotal(buildCategories)
+
+    return (
+      <div className="container">
+        <div className="build-header">
+          <h1>{selectedBuild.name}</h1>
+          <button 
+            onClick={() => setSelectedBuild(null)}
+            className="back-btn"
+          >
+            Back to Builds
+          </button>
+        </div>
+        
+        <div className="price-grid">
+          {buildItems.filter(Boolean).map((item, index) => (
+            <div key={index} className="price-card">
+              <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
+              <p className="product-name">{item.name}</p>
+              <p className="price">R$ {item.price.toFixed(2)}</p>
+              <p className="store">Store: {item.website}</p>
+              <div className="actions">
+                <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
+                  View Product
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="build-total">
+          <h2>Total: R$ {totalPrice.toFixed(2)}</h2>
+        </div>
+
+        <style jsx>{`
+          .build-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+          }
+          .back-btn {
+            background-color: #333;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          }
+          .build-total {
+            text-align: right;
+            margin-top: 2rem;
+            padding: 1rem;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+          }
+          .build-total h2 {
+            margin: 0;
+            color: #4dabf7;
+          }
+          .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #e0e0e0;
+          }
+          h1 {
+            text-align: center;
+            margin-bottom: 0.5rem;
+            color: #ffffff;
+          }
+          .price-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+          }
+          .price-card {
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5rem;
+            background-color: #1e1e1e;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+            color: #e0e0e0;
+          }
+          .price-card h2 {
+            margin-top: 0;
+            color: #ffffff;
+          }
+          .product-name {
+            font-weight: bold;
+            margin: 0.5rem 0;
+            color: #ffffff;
+          }
+          .price {
+            font-size: 1.5rem;
+            color: #4dabf7;
+            margin: 1rem 0;
+          }
+          .store {
+            color: #a5a5a5;
+            margin: 0.5rem 0;
+          }
+          .actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 1rem;
+          }
+          .link {
+            display: inline-block;
+            color: white;
+            background-color: #1971c2;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: background-color 0.2s;
+            width: 100%;
+            text-align: center;
+          }
+          .link:hover {
+            background-color: #1864ab;
+          }
+          .loading {
+            text-align: center;
+            padding: 2rem;
+            font-size: 1.2rem;
+            color: #e0e0e0;
+          }
+        `}</style>
+      </div>
+    )
+  }
+
+  // Main view with builds list
   return (
     <div className="container">
-      <h1>PC Part Price Tracker</h1>
+      <h1>PC Part Builder</h1>
       
-      <div className="price-grid">
-        {lowestPrices.map((item, index) => (
-          <div key={index} className="price-card">
-            <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
-            <p className="product-name">{item.name}</p>
-            <p className="price">R$ {item.price.toFixed(2)}</p>
-            <p className="store">Store: {item.website}</p>
-            <div className="actions">
-              <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
-                View Product
-              </a>
+      <div className="builds-section">
+        <div className="builds-header">
+          <h2>Your Builds</h2>
+          <button 
+            onClick={() => setShowBuildForm(!showBuildForm)}
+            className="add-build-btn"
+          >
+            {showBuildForm ? 'Cancel' : 'Add New Build'}
+          </button>
+        </div>
+
+        {showBuildForm && (
+          <div className="build-form">
+            <div className="form-group">
+              <label>Build Name:</label>
+              <input 
+                type="text" 
+                value={newBuild.name}
+                onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
+                placeholder="Ex: Gaming PC 2023"
+              />
             </div>
+            
+            <div className="form-group">
+              <label>Select Categories:</label>
+              <div className="category-checkboxes">
+                {lowestPrices.map(item => (
+                  <label key={item.category}>
+                    <input
+                      type="checkbox"
+                      checked={newBuild.categories.includes(item.category)}
+                      onChange={() => toggleCategoryInBuild(item.category)}
+                    />
+                    {item.category.replace('_', ' ').toUpperCase()}
+                  </label>
+                ))}
+              </div>
+            </div>
+            
+            <button onClick={createBuild} className="create-btn">
+              Create Build
+            </button>
           </div>
-        ))}
+        )}
+
+        <div className="builds-grid">
+          {builds.map(build => {
+            const totalPrice = calculateBuildTotal(build.categories)
+            return (
+              <div key={build.id} className="build-card">
+                <div className="build-card-header">
+                  <h3 onClick={() => setSelectedBuild(build)} className="build-name">
+                    {build.name}
+                  </h3>
+                  <button 
+                    onClick={() => deleteBuild(build.id)}
+                    className="delete-btn"
+                  >
+                    Remove
+                  </button>
+                </div>
+                
+                <div className="build-categories">
+                  {build.categories.map((category, index) => (
+                    <span key={index} className="category-tag">
+                      {category.replace('_', ' ').toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+                
+                <div className="build-total">
+                  Total: R$ {totalPrice.toFixed(2)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="search-management">
@@ -427,26 +729,188 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
+        .container {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 2rem;
+          color: #e0e0e0;
+        }
+        h1, h2, h3 {
+          color: #ffffff;
+        }
+        .builds-section {
+          margin-bottom: 3rem;
+        }
+        .builds-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        .add-build-btn {
+          background-color: #1971c2;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .build-form {
+          background-color: #1e1e1e;
+          padding: 1.5rem;
+          border-radius: 8px;
+          margin-bottom: 2rem;
+          border: 1px solid #333;
+        }
+        .form-group {
+          margin-bottom: 1rem;
+        }
+        .form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: bold;
+          color: #e0e0e0;
+        }
+        .form-group input {
+          width: 100%;
+          padding: 0.5rem;
+          background-color: #333;
+          color: #e0e0e0;
+          border: 1px solid #444;
+          border-radius: 4px;
+        }
+        .category-checkboxes {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 0.5rem;
+          margin-top: 0.5rem;
+        }
+        .category-checkboxes label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+        .create-btn {
+          background-color: #2b8a3e;
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .builds-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 1.5rem;
+        }
+        .build-card {
+          border: 1px solid #333;
+          border-radius: 8px;
+          padding: 1.5rem;
+          background-color: #1e1e1e;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .build-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        .build-name {
+          margin: 0;
+          cursor: pointer;
+          color: #4dabf7;
+        }
+        .build-name:hover {
+          text-decoration: underline;
+        }
+        .build-categories {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        .category-tag {
+          background-color: #333;
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.8rem;
+        }
+        .build-total {
+          font-weight: bold;
+          color: #ffffff;
+          margin-top: 1rem;
+        }
+        .delete-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .search-management {
+          margin-top: 3rem;
+          padding: 2rem;
+          background-color: #1e1e1e;
+          border-radius: 8px;
+          border: 1px solid #333;
+        }
+        .add-search-form {
+          margin-bottom: 2rem;
+          padding: 1.5rem;
+          background-color: #252525;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          color: #e0e0e0;
+          border: 1px solid #333;
+        }
         .website-checkboxes {
           display: flex;
           gap: 1rem;
           margin-top: 0.5rem;
         }
-
         .website-checkboxes label {
           display: flex;
           align-items: center;
           gap: 0.5rem;
           cursor: pointer;
         }
-
-        .website-checkboxes input[type="checkbox"] {
-          margin: 0;
-        }
         .helper-text {
           font-size: 0.8rem;
           color: #a5a5a5;
           margin-top: 0.25rem;
+        }
+        .add-btn {
+          background-color: #2b8a3e;
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .search-configs-list {
+          background-color: #252525;
+          padding: 1.5rem;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          border: 1px solid #333;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          color: #e0e0e0;
+        }
+        th, td {
+          padding: 0.75rem;
+          text-align: left;
+          border-bottom: 1px solid #333;
+        }
+        th {
+          background-color: #333;
         }
         .keyword-groups {
           display: flex;
@@ -461,171 +925,11 @@ export default function PriceTracker() {
           display: inline-block;
           margin-right: 0.25rem;
         }
-        body {
-          background-color: #121212;
-          color: #e0e0e0;
-          margin: 0;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        }
-        .container {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 2rem;
-          color: #e0e0e0;
-        }
-        h1 {
-          text-align: center;
-          margin-bottom: 0.5rem;
-          color: #ffffff;
-        }
-        p {
-          text-align: center;
-          margin-bottom: 2rem;
-          color: #a5a5a5;
-        }
-        .price-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 1.5rem;
-          margin-bottom: 2rem;
-        }
-        .price-card {
-          border: 1px solid #333;
-          border-radius: 8px;
-          padding: 1.5rem;
-          background-color: #1e1e1e;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          transition: all 0.2s;
-          color: #e0e0e0;
-        }
-        .price-card h2 {
-          margin-top: 0;
-          color: #ffffff;
-        }
-        .product-name {
-          font-weight: bold;
-          margin: 0.5rem 0;
-          color: #ffffff;
-        }
-        .price {
-          font-size: 1.5rem;
-          color: #4dabf7;
-          margin: 1rem 0;
-        }
-        .store {
-          color: #a5a5a5;
-          margin: 0.5rem 0;
-        }
-        .actions {
-          display: flex;
-          justify-content: space-between;
-          margin-top: 1rem;
-        }
-        .link {
-          display: inline-block;
-          color: white;
-          background-color: #1971c2;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          text-decoration: none;
-          transition: background-color 0.2s;
-          width: 100%;
-          text-align: center;
-        }
-        .link:hover {
-          background-color: #1864ab;
-        }
-        .loading {
-          text-align: center;
-          padding: 2rem;
-          font-size: 1.2rem;
-          color: #e0e0e0;
-        }
-        .search-management {
-          margin-top: 3rem;
-          padding: 2rem;
-          background-color: #1e1e1e;
-          border-radius: 8px;
-          border: 1px solid #333;
-        }
-        .search-management h2 {
-          color: #ffffff;
-        }
-        .add-search-form {
-          margin-bottom: 2rem;
-          padding: 1.5rem;
-          background-color: #252525;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          color: #e0e0e0;
-          border: 1px solid #333;
-        }
-        .add-search-form h3 {
-          color: #ffffff;
-          margin-top: 0;
-        }
-        .form-group {
-          margin-bottom: 1rem;
-        }
-        .form-group label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-weight: bold;
-          color: #e0e0e0;
-        }
-        .form-group input,
-        .form-group select {
-          width: 100%;
-          padding: 0.5rem;
-          background-color: #333;
-          color: #e0e0e0;
-          border: 1px solid #444;
-          border-radius: 4px;
-        }
-        .add-btn {
-          background-color: #2b8a3e;
-          color: white;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 1rem;
-          transition: background-color 0.2s;
-        }
-        .add-btn:hover {
-          background-color: #2f9e44;
-        }
-        .search-configs-list {
-          background-color: #252525;
-          padding: 1.5rem;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          border: 1px solid #333;
-        }
-        .search-configs-list h3 {
-          color: #ffffff;
-          margin-top: 0;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          color: #e0e0e0;
-        }
-        th, td {
-          padding: 0.75rem;
-          text-align: left;
-          border-bottom: 1px solid #333;
-        }
-        th {
-          color: #ffffff;
-          background-color: #333;
-        }
         .status-btn {
           padding: 0.25rem 0.5rem;
           border: none;
           border-radius: 4px;
           cursor: pointer;
-          transition: opacity 0.2s;
         }
         .status-btn.active {
           background-color: #2b8a3e;
@@ -635,20 +939,11 @@ export default function PriceTracker() {
           background-color: #c92a2a;
           color: white;
         }
-        .status-btn:hover {
-          opacity: 0.8;
-        }
-        .delete-btn {
-          background-color: #c92a2a;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        .delete-btn:hover {
-          background-color: #e03131;
+        .loading {
+          text-align: center;
+          padding: 2rem;
+          font-size: 1.2rem;
+          color: #e0e0e0;
         }
       `}</style>
     </div>
