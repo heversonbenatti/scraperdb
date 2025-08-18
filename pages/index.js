@@ -1,30 +1,46 @@
+// index.js
 import { supabase } from '../lib/supabaseClient'
 import { useEffect, useState } from 'react'
 
 export default function PriceTracker() {
-  const [searches, setSearches] = useState([])
-  const [builds, setBuilds] = useState([])
-  const [selectedBuild, setSelectedBuild] = useState(null)
+  const [lowestPrices, setLowestPrices] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('builds')
-  const [newBuild, setNewBuild] = useState({ name: '', description: '' })
-  const [newSearch, setNewSearch] = useState({ 
-    search_text: '', 
-    keywords: '', 
-    category: '', 
-    subcategory: '', 
-    website: 'kabum',
-    link: ''
-  })
+  const [totalCost, setTotalCost] = useState(0)
+  const [selectedParts, setSelectedParts] = useState({})
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       try {
-        const { data: searchesData } = await supabase.from('searches').select('*')
-        const { data: buildsData } = await supabase.from('builds').select('*')
-        
-        setSearches(searchesData || [])
-        setBuilds(buildsData || [])
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select(`
+            id,
+            name,
+            category,
+            website,
+            product_link
+          `)
+
+        if (productsError) throw productsError
+
+        const pricesPromises = productsData.map(async (product) => {
+          const { data: priceData, error: priceError } = await supabase
+            .from('prices')
+            .select('price, collected_at')
+            .eq('product_id', product.id)
+            .order('collected_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          return {
+            ...product,
+            price: priceData?.price || 0,
+            lastUpdated: priceData?.collected_at
+          }
+        })
+
+        const productsWithPrices = await Promise.all(pricesPromises)
+        updateLowestPrices(productsWithPrices)
         setLoading(false)
       } catch (error) {
         console.error('Error fetching data:', error)
@@ -32,319 +48,240 @@ export default function PriceTracker() {
       }
     }
 
-    fetchData()
+    const updateLowestPrices = (products) => {
+      const categories = {}
+      products.forEach(product => {
+        if (!categories[product.category] || 
+            product.price < categories[product.category].price) {
+          categories[product.category] = {
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            website: product.website,
+            link: product.product_link,
+            category: product.category
+          }
+        }
+      })
+      setLowestPrices(Object.values(categories))
+    }
 
+    // Initial fetch
+    fetchInitialData()
+
+    // Set up realtime subscription
     const subscription = supabase
-      .channel('db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, payload => {
-        if (payload.table === 'searches') {
-          setSearches(prev => {
-            if (payload.eventType === 'DELETE') {
-              return prev.filter(item => item.id !== payload.old.id)
-            } else if (payload.eventType === 'INSERT') {
-              return [...prev, payload.new]
-            } else if (payload.eventType === 'UPDATE') {
-              return prev.map(item => item.id === payload.new.id ? payload.new : item)
-            }
-            return prev
-          })
+      .channel('price-changes')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'prices'
+      }, payload => {
+        // When a new price is inserted, update our data
+        const updatedProduct = {
+          id: payload.new.product_id,
+          price: payload.new.price,
+          lastUpdated: payload.new.collected_at
         }
-        if (payload.table === 'builds') {
-          setBuilds(prev => {
-            if (payload.eventType === 'DELETE') {
-              return prev.filter(item => item.id !== payload.old.id)
-            } else if (payload.eventType === 'INSERT') {
-              return [...prev, payload.new]
-            } else if (payload.eventType === 'UPDATE') {
-              return prev.map(item => item.id === payload.new.id ? payload.new : item)
-            }
-            return prev
-          })
-        }
+        setLowestPrices(prev => {
+          const updated = prev.map(item => 
+            item.id === updatedProduct.id ? 
+            { ...item, price: updatedProduct.price, lastUpdated: updatedProduct.lastUpdated } : 
+            item
+          )
+          return updated
+        })
       })
       .subscribe()
 
-    return () => supabase.removeChannel(subscription)
+    return () => {
+      supabase.removeChannel(subscription)
+    }
   }, [])
 
-  const handleCreateBuild = async () => {
-    if (!newBuild.name) {
-      alert('Build name is required')
-      return
-    }
+  // Calculate total cost when selected parts change
+  useEffect(() => {
+    const sum = Object.values(selectedParts).reduce((total, part) => total + part.price, 0)
+    setTotalCost(sum)
+  }, [selectedParts])
 
-    const { data, error } = await supabase
-      .from('builds')
-      .insert([newBuild])
-      .select()
-    
-    if (!error && data) {
-      setNewBuild({ name: '', description: '' })
-    }
+  const handleSelectPart = (part) => {
+    setSelectedParts(prev => ({
+      ...prev,
+      [part.category]: part
+    }))
   }
 
-  const handleCreateSearch = async () => {
-    if (!newSearch.search_text && !newSearch.link) {
-      alert('Either search text or link must be provided')
-      return
-    }
-
-    try {
-      const keywordsArray = newSearch.keywords.split(',').map(k => k.trim())
-      const formattedKeywords = JSON.stringify([keywordsArray])
-      
-      const { data, error } = await supabase
-        .from('searches')
-        .insert([{ 
-          ...newSearch, 
-          keywords: formattedKeywords,
-          search_text: newSearch.search_text || null,
-          link: newSearch.link || null
-        }])
-        .select()
-      
-      if (!error && data) {
-        setNewSearch({ 
-          search_text: '', 
-          keywords: '', 
-          category: '', 
-          subcategory: '', 
-          website: 'kabum',
-          link: ''
-        })
-      }
-    } catch (error) {
-      console.error('Error creating search:', error)
-    }
-  }
-
-  const handleDeleteBuild = async (id) => {
-    await supabase.from('builds').delete().eq('id', id)
-  }
-
-  const handleDeleteSearch = async (id) => {
-    await supabase.from('searches').delete().eq('id', id)
+  const handleRemovePart = (category) => {
+    setSelectedParts(prev => {
+      const newParts = { ...prev }
+      delete newParts[category]
+      return newParts
+    })
   }
 
   if (loading) return <div className="loading">Loading...</div>
 
   return (
     <div className="container">
-      <div className="tabs">
-        <button 
-          className={activeTab === 'builds' ? 'active' : ''}
-          onClick={() => setActiveTab('builds')}
-        >
-          Builds
-        </button>
-        <button 
-          className={activeTab === 'searches' ? 'active' : ''}
-          onClick={() => setActiveTab('searches')}
-        >
-          Searches
-        </button>
-      </div>
-
-      {activeTab === 'builds' && (
-        <div className="builds-section">
-          <h2>Builds</h2>
-          <div className="builds-grid">
-            {builds.map(build => (
-              <div key={build.id} className="build-card">
-                <h3>{build.name}</h3>
-                <p>{build.description}</p>
-                <div className="actions">
-                  <button onClick={() => setSelectedBuild(build)}>View</button>
-                  <button 
-                    className="delete"
-                    onClick={() => handleDeleteBuild(build.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
+      <h1>lowest prices</h1>
+      
+      <div className="layout">
+        <div className="price-grid">
+          {lowestPrices.map((item, index) => (
+            <div key={index} className={`price-card ${selectedParts[item.category] ? 'selected' : ''}`}>
+              <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
+              <p className="product-name">{item.name}</p>
+              <p className="price">R$ {item.price.toFixed(2)}</p>
+              <p className="store">Store: {item.website}</p>
+              <div className="actions">
+                <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
+                  View Product
+                </a>
+                <button 
+                  onClick={() => handleSelectPart(item)}
+                  className="select-btn"
+                >
+                  {selectedParts[item.category] ? 'Selected' : 'Select'}
+                </button>
               </div>
-            ))}
-          </div>
-
-          <div className="create-build">
-            <h3>Create New Build</h3>
-            <input
-              type="text"
-              placeholder="Build Name*"
-              value={newBuild.name}
-              onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
-              required
-            />
-            <input
-              type="text"
-              placeholder="Description"
-              value={newBuild.description}
-              onChange={(e) => setNewBuild({...newBuild, description: e.target.value})}
-            />
-            <button onClick={handleCreateBuild}>Create Build</button>
-          </div>
+            </div>
+          ))}
         </div>
-      )}
-
-      {activeTab === 'searches' && (
-        <div className="searches-section">
-          <h2>Searches</h2>
-          <table className="searches-table">
-            <thead>
-              <tr>
-                <th>Search Text</th>
-                <th>Keywords</th>
-                <th>Category</th>
-                <th>Subcategory</th>
-                <th>Website</th>
-                <th>Link</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {searches.map(search => (
-                <tr key={search.id}>
-                  <td>{search.search_text || '-'}</td>
-                  <td>{JSON.parse(search.keywords).join(', ')}</td>
-                  <td>{search.category}</td>
-                  <td>{search.subcategory || '-'}</td>
-                  <td>{search.website}</td>
-                  <td>{search.link ? 'Yes' : 'No'}</td>
-                  <td>
-                    <button 
-                      className="delete"
-                      onClick={() => handleDeleteSearch(search.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="create-search">
-            <h3>Create New Search</h3>
-            <input
-              type="text"
-              placeholder="Search Text (or provide link below)"
-              value={newSearch.search_text}
-              onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
-            />
-            <input
-              type="text"
-              placeholder="Keywords (comma separated)*"
-              value={newSearch.keywords}
-              onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
-              required
-            />
-            <input
-              type="text"
-              placeholder="Category*"
-              value={newSearch.category}
-              onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
-              required
-            />
-            <input
-              type="text"
-              placeholder="Subcategory"
-              value={newSearch.subcategory}
-              onChange={(e) => setNewSearch({...newSearch, subcategory: e.target.value})}
-            />
-            <input
-              type="text"
-              placeholder="Product Link (if no search text)"
-              value={newSearch.link}
-              onChange={(e) => setNewSearch({...newSearch, link: e.target.value})}
-            />
-            <select
-              value={newSearch.website}
-              onChange={(e) => setNewSearch({...newSearch, website: e.target.value})}
-              required
-            >
-              <option value="kabum">Kabum</option>
-              <option value="pichau">Pichau</option>
-              <option value="terabyteshop">Terabyte</option>
-            </select>
-            <button onClick={handleCreateSearch}>Create Search</button>
-          </div>
-        </div>
-      )}
+      </div>
 
       <style jsx>{`
         .container {
-          max-width: 1200px;
+          max-width: 1400px;
           margin: 0 auto;
           padding: 2rem;
         }
-        .tabs {
-          display: flex;
+        h1 {
+          text-align: center;
+          margin-bottom: 0.5rem;
+        }
+        p {
+          text-align: center;
           margin-bottom: 2rem;
+          color: #666;
         }
-        .tabs button {
-          padding: 0.5rem 1rem;
-          margin-right: 0.5rem;
-          background: #eee;
-          border: none;
-          cursor: pointer;
+        .layout {
+          display: grid;
+          grid-template-columns: 2fr 1fr;
+          gap: 2rem;
         }
-        .tabs button.active {
-          background: #0070f3;
-          color: white;
-        }
-        .builds-grid {
+        .price-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 1rem;
-          margin-bottom: 2rem;
+          gap: 1.5rem;
         }
-        .build-card {
+        .price-card {
           border: 1px solid #ddd;
-          padding: 1rem;
-          border-radius: 4px;
+          border-radius: 8px;
+          padding: 1.5rem;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          transition: all 0.2s;
         }
-        .build-card h3 {
+        .price-card.selected {
+          border: 2px solid #0070f3;
+          background-color: #f5f9ff;
+        }
+        h2 {
           margin-top: 0;
+          color: #333;
+        }
+        .product-name {
+          font-weight: bold;
+          margin: 0.5rem 0;
+        }
+        .price {
+          font-size: 1.5rem;
+          color: #0070f3;
+          margin: 1rem 0;
+        }
+        .store {
+          color: #666;
+          margin: 0.5rem 0;
         }
         .actions {
           display: flex;
-          gap: 0.5rem;
-        }
-        .actions button {
-          padding: 0.25rem 0.5rem;
-        }
-        .delete {
-          background: #dc3545;
-          color: white;
-        }
-        .create-build, .create-search {
-          border-top: 1px solid #ddd;
-          padding-top: 1rem;
+          justify-content: space-between;
           margin-top: 1rem;
         }
-        .create-build input, 
-        .create-search input, 
-        .create-search select,
-        .create-search textarea {
-          display: block;
-          margin-bottom: 0.5rem;
-          padding: 0.5rem;
-          width: 100%;
-          max-width: 400px;
+        .link {
+          display: inline-block;
+          color: white;
+          background-color: #0070f3;
+          padding: 0.5rem 1rem;
+          border-radius: 4px;
+          text-decoration: none;
         }
-        .searches-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 2rem;
+        .link:hover {
+          background-color: #005bb5;
         }
-        .searches-table th, .searches-table td {
-          padding: 0.5rem;
-          border: 1px solid #ddd;
-          text-align: left;
+        .select-btn {
+          padding: 0.5rem 1rem;
+          background-color: #28a745;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .select-btn:hover {
+          background-color: #218838;
+        }
+        .build-summary {
+          background-color: #f8f9fa;
+          padding: 1.5rem;
+          border-radius: 8px;
+          height: fit-content;
+          position: sticky;
+          top: 1rem;
+        }
+        .parts-list {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 1.5rem;
+        }
+        .part-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 0;
+          border-bottom: 1px solid #eee;
+        }
+        .remove-btn {
+          background: none;
+          border: none;
+          color: #dc3545;
+          cursor: pointer;
+          font-size: 1.2rem;
+          padding: 0 0.5rem;
+        }
+        .total-cost {
+          display: flex;
+          justify-content: space-between;
+          font-size: 1.2rem;
+          margin: 1rem 0;
+          padding-top: 1rem;
+          border-top: 1px solid #ddd;
+        }
+        .save-build-btn {
+          width: 100%;
+          padding: 0.75rem;
+          background-color: #6c757d;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .save-build-btn:hover {
+          background-color: #5a6268;
         }
         .loading {
           text-align: center;
           padding: 2rem;
+          font-size: 1.2rem;
         }
       `}</style>
     </div>
