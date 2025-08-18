@@ -7,10 +7,20 @@ export default function PriceTracker() {
   const [loading, setLoading] = useState(true)
   const [totalCost, setTotalCost] = useState(0)
   const [selectedParts, setSelectedParts] = useState({})
+  const [searchConfigs, setSearchConfigs] = useState([])
+  const [newSearch, setNewSearch] = useState({
+    search_text: '',
+    keywords: '',
+    category: '',
+    website: 'kabum',
+    is_active: true
+  })
 
+  // Fetch initial data
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
+        // Fetch products and prices
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select(`
@@ -41,6 +51,15 @@ export default function PriceTracker() {
 
         const productsWithPrices = await Promise.all(pricesPromises)
         updateLowestPrices(productsWithPrices)
+        
+        // Fetch search configurations
+        const { data: configsData, error: configsError } = await supabase
+          .from('search_configs')
+          .select('*')
+          .order('created_at', { ascending: false })
+        
+        if (!configsError) setSearchConfigs(configsData)
+        
         setLoading(false)
       } catch (error) {
         console.error('Error fetching data:', error)
@@ -69,15 +88,14 @@ export default function PriceTracker() {
     // Initial fetch
     fetchInitialData()
 
-    // Set up realtime subscription
-    const subscription = supabase
+    // Set up realtime subscriptions
+    const productsSubscription = supabase
       .channel('price-changes')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'prices'
       }, payload => {
-        // When a new price is inserted, update our data
         const updatedProduct = {
           id: payload.new.product_id,
           price: payload.new.price,
@@ -94,8 +112,28 @@ export default function PriceTracker() {
       })
       .subscribe()
 
+    const configsSubscription = supabase
+      .channel('config-changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'search_configs'
+      }, payload => {
+        if (payload.eventType === 'INSERT') {
+          setSearchConfigs(prev => [payload.new, ...prev])
+        } else if (payload.eventType === 'UPDATE') {
+          setSearchConfigs(prev => prev.map(config => 
+            config.id === payload.new.id ? payload.new : config
+          ))
+        } else if (payload.eventType === 'DELETE') {
+          setSearchConfigs(prev => prev.filter(config => config.id !== payload.old.id))
+        }
+      })
+      .subscribe()
+
     return () => {
-      supabase.removeChannel(subscription)
+      supabase.removeChannel(productsSubscription)
+      supabase.removeChannel(configsSubscription)
     }
   }, [])
 
@@ -120,11 +158,76 @@ export default function PriceTracker() {
     })
   }
 
+  // Search configuration functions
+  const addSearchConfig = async () => {
+    if (!newSearch.search_text || !newSearch.keywords || !newSearch.category) {
+      alert('Preencha todos os campos obrigatórios')
+      return
+    }
+
+    const keywordsArray = newSearch.keywords
+      .split(',')
+      .map(k => k.trim())
+      .filter(k => k.length > 0)
+    
+    if (keywordsArray.length === 0) {
+      alert('Adicione pelo menos uma keyword')
+      return
+    }
+
+    const formattedKeywords = [keywordsArray]
+
+    const { data, error } = await supabase
+      .from('search_configs')
+      .insert([{
+        search_text: newSearch.search_text,
+        keywords: JSON.stringify(formattedKeywords),
+        category: newSearch.category,
+        website: newSearch.website,
+        is_active: newSearch.is_active
+      }])
+      .select()
+
+    if (!error) {
+      setNewSearch({
+        search_text: '',
+        keywords: '',
+        category: '',
+        website: 'kabum',
+        is_active: true
+      })
+    } else {
+      console.error('Error adding search config:', error)
+    }
+  }
+
+  const toggleSearchActive = async (id, currentStatus) => {
+    const { error } = await supabase
+      .from('search_configs')
+      .update({ is_active: !currentStatus })
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error toggling search active status:', error)
+    }
+  }
+
+  const deleteSearchConfig = async (id) => {
+    const { error } = await supabase
+      .from('search_configs')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting search config:', error)
+    }
+  }
+
   if (loading) return <div className="loading">Loading...</div>
 
   return (
     <div className="container">
-      <h1>lowest prices</h1>
+      <h1>PC Part Price Tracker</h1>
       
       <div className="layout">
         <div className="price-grid">
@@ -147,6 +250,135 @@ export default function PriceTracker() {
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="build-summary">
+          <h2>Your Build</h2>
+          <ul className="parts-list">
+            {Object.entries(selectedParts).map(([category, part]) => (
+              <li key={category} className="part-item">
+                <span>{category.replace('_', ' ')}: {part.name}</span>
+                <span>R$ {part.price.toFixed(2)}</span>
+                <button 
+                  onClick={() => handleRemovePart(category)}
+                  className="remove-btn"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="total-cost">
+            <span>Total:</span>
+            <span>R$ {totalCost.toFixed(2)}</span>
+          </div>
+          <button className="save-build-btn">Save Build</button>
+        </div>
+      </div>
+
+      <div className="search-management">
+        <h2>Manage Search Configurations</h2>
+        
+        <div className="add-search-form">
+          <h3>Add New Search</h3>
+          <div className="form-group">
+            <label>Search Term:</label>
+            <input 
+              type="text" 
+              value={newSearch.search_text}
+              onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
+              placeholder="Ex: amd ryzen 5"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>Keywords (comma separated):</label>
+            <input 
+              type="text" 
+              value={newSearch.keywords}
+              onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
+              placeholder="Ex: x3d, 5500, processador"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>Category:</label>
+            <input 
+              type="text" 
+              value={newSearch.category}
+              onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
+              placeholder="Ex: cpu_2"
+            />
+          </div>
+          
+          <div className="form-group">
+            <label>Website:</label>
+            <select 
+              value={newSearch.website}
+              onChange={(e) => setNewSearch({...newSearch, website: e.target.value})}
+            >
+              <option value="kabum">Kabum</option>
+              <option value="pichau">Pichau</option>
+              <option value="terabyte">Terabyte</option>
+            </select>
+          </div>
+          
+          <div className="form-group">
+            <label>
+              <input 
+                type="checkbox" 
+                checked={newSearch.is_active}
+                onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
+              />
+              Active
+            </label>
+          </div>
+          
+          <button onClick={addSearchConfig} className="add-btn">
+            Add Search
+          </button>
+        </div>
+        
+        <div className="search-configs-list">
+          <h3>Configured Searches</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Term</th>
+                <th>Keywords</th>
+                <th>Category</th>
+                <th>Website</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {searchConfigs.map(config => (
+                <tr key={config.id}>
+                  <td>{config.search_text}</td>
+                  <td>{JSON.parse(config.keywords)[0].join(', ')}</td>
+                  <td>{config.category}</td>
+                  <td>{config.website}</td>
+                  <td>
+                    <button 
+                      onClick={() => toggleSearchActive(config.id, config.is_active)}
+                      className={`status-btn ${config.is_active ? 'active' : 'inactive'}`}
+                    >
+                      {config.is_active ? 'Active' : 'Inactive'}
+                    </button>
+                  </td>
+                  <td>
+                    <button 
+                      onClick={() => deleteSearchConfig(config.id)}
+                      className="delete-btn"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -282,6 +514,80 @@ export default function PriceTracker() {
           text-align: center;
           padding: 2rem;
           font-size: 1.2rem;
+        }
+        .search-management {
+          margin-top: 3rem;
+          padding: 2rem;
+          background-color: #f8f9fa;
+          border-radius: 8px;
+        }
+        .add-search-form {
+          margin-bottom: 2rem;
+          padding: 1.5rem;
+          background-color: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+          margin-bottom: 1rem;
+        }
+        .form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: bold;
+        }
+        .form-group input,
+        .form-group select {
+          width: 100%;
+          padding: 0.5rem;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+        }
+        .add-btn {
+          background-color: #28a745;
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .search-configs-list {
+          background-color: white;
+          padding: 1.5rem;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        th, td {
+          padding: 0.75rem;
+          text-align: left;
+          border-bottom: 1px solid #ddd;
+        }
+        .status-btn {
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .status-btn.active {
+          background-color: #28a745;
+          color: white;
+        }
+        .status-btn.inactive {
+          background-color: #dc3545;
+          color: white;
+        }
+        .delete-btn {
+          background-color: #dc3545;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
         }
       `}</style>
     </div>
