@@ -12,7 +12,11 @@ export default function PriceTracker() {
     search_text: '',
     keywords: '',
     category: '',
-    website: 'kabum',
+    websites: {
+      kabum: false,
+      pichau: false,
+      terabyte: false
+    },
     is_active: true
   })
 
@@ -161,7 +165,17 @@ export default function PriceTracker() {
   // Search configuration functions
   const addSearchConfig = async () => {
     if (!newSearch.search_text || !newSearch.keywords || !newSearch.category) {
-      alert('Preencha todos os campos obrigatórios')
+      alert('Fill all required fields')
+      return
+    }
+
+    // Get selected websites
+    const selectedWebsites = Object.entries(newSearch.websites)
+      .filter(([_, isChecked]) => isChecked)
+      .map(([website]) => website)
+
+    if (selectedWebsites.length === 0) {
+      alert('Select at least one website')
       return
     }
 
@@ -178,19 +192,22 @@ export default function PriceTracker() {
       .filter(group => group.length > 0)
 
     if (keywordGroups.length === 0) {
-      alert('Adicione pelo menos uma keyword group (use | para separar grupos)')
+      alert('Add at least one keyword group (use | to separate groups)')
       return
     }
 
+    // Create one config per selected website
+    const configs = selectedWebsites.map(website => ({
+      search_text: newSearch.search_text,
+      keywords: JSON.stringify(keywordGroups),
+      category: newSearch.category,
+      website: website,
+      is_active: newSearch.is_active
+    }))
+
     const { data, error } = await supabase
       .from('search_configs')
-      .insert([{
-        search_text: newSearch.search_text,
-        keywords: JSON.stringify(keywordGroups),
-        category: newSearch.category,
-        website: newSearch.website,
-        is_active: newSearch.is_active
-      }])
+      .insert(configs)
       .select()
 
     if (!error) {
@@ -198,7 +215,11 @@ export default function PriceTracker() {
         search_text: '',
         keywords: '',
         category: '',
-        website: 'kabum',
+        websites: {
+          kabum: false,
+          pichau: false,
+          terabyte: false
+        },
         is_active: true
       })
     } else {
@@ -345,15 +366,51 @@ export default function PriceTracker() {
           </div>
           
           <div className="form-group">
-            <label>Website:</label>
-            <select 
-              value={newSearch.website}
-              onChange={(e) => setNewSearch({...newSearch, website: e.target.value})}
-            >
-              <option value="kabum">Kabum</option>
-              <option value="pichau">Pichau</option>
-              <option value="terabyte">Terabyte</option>
-            </select>
+            <label>Websites:</label>
+            <div className="website-checkboxes">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newSearch.websites.kabum}
+                  onChange={(e) => setNewSearch({
+                    ...newSearch,
+                    websites: {
+                      ...newSearch.websites,
+                      kabum: e.target.checked
+                    }
+                  })}
+                />
+                Kabum
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newSearch.websites.pichau}
+                  onChange={(e) => setNewSearch({
+                    ...newSearch,
+                    websites: {
+                      ...newSearch.websites,
+                      pichau: e.target.checked
+                    }
+                  })}
+                />
+                Pichau
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={newSearch.websites.terabyte}
+                  onChange={(e) => setNewSearch({
+                    ...newSearch,
+                    websites: {
+                      ...newSearch.websites,
+                      terabyte: e.target.checked
+                    }
+                  })}
+                />
+                Terabyte
+              </label>
+            </div>
           </div>
           
           <div className="form-group">
@@ -424,6 +481,22 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
+        .website-checkboxes {
+          display: flex;
+          gap: 1rem;
+          margin-top: 0.5rem;
+        }
+
+        .website-checkboxes label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+
+        .website-checkboxes input[type="checkbox"] {
+          margin: 0;
+        }
         .helper-text {
           font-size: 0.8rem;
           color: #a5a5a5;
