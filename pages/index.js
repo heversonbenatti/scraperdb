@@ -494,11 +494,11 @@ export default function PriceTracker() {
   // Main view with builds list
   return (
     <div className="container">
-      <h1>PC Part Builder</h1>
+      <h1>pc scraper</h1>
       
       <div className="builds-section">
         <div className="builds-header">
-          <h2>Your Builds</h2>
+          <h2>BUILDS</h2>
           <button 
             onClick={() => setShowBuildForm(!showBuildForm)}
             className="add-build-btn"
@@ -576,7 +576,7 @@ export default function PriceTracker() {
       </div>
 
       <div className="search-management">
-        <h2>Manage Search Configurations</h2>
+        <h2>SEARCHES</h2>
         
         <div className="add-search-form">
           <h3>Add New Search</h3>
