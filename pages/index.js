@@ -408,216 +408,112 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
-        body {
-          color: black;
-        }
-        .container {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 2rem;
-        }
-        h1 {
-          text-align: center;
-          margin-bottom: 0.5rem;
-        }
-        p {
-          text-align: center;
-          margin-bottom: 2rem;
-          color: #666;
-        }
-        .layout {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 2rem;
-        }
-        .price-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 1.5rem;
-        }
-        .price-card {
-          border: 1px solid #ddd;
-          border-radius: 8px;
-          padding: 1.5rem;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          transition: all 0.2s;
-        }
-        .price-card.selected {
-          border: 2px solid #0070f3;
-          background-color: #f5f9ff;
-        }
-        h2 {
-          margin-top: 0;
-          color: #333;
-        }
-        .product-name {
-          font-weight: bold;
-          margin: 0.5rem 0;
-        }
-        .price {
-          font-size: 1.5rem;
-          color: #0070f3;
-          margin: 1rem 0;
-        }
-        .store {
-          color: #666;
-          margin: 0.5rem 0;
-        }
-        .actions {
-          display: flex;
-          justify-content: space-between;
-          margin-top: 1rem;
-        }
-        .link {
-          display: inline-block;
-          color: white;
-          background-color: #0070f3;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          text-decoration: none;
-        }
-        .link:hover {
-          background-color: #005bb5;
-        }
-        .select-btn {
-          padding: 0.5rem 1rem;
-          background-color: #28a745;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .select-btn:hover {
-          background-color: #218838;
-        }
-        .build-summary {
-          background-color: #f8f9fa;
-          padding: 1.5rem;
-          border-radius: 8px;
-          height: fit-content;
-          position: sticky;
-          top: 1rem;
-        }
-        .parts-list {
-          list-style: none;
-          padding: 0;
-          margin: 0 0 1.5rem;
-        }
-        .part-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid #eee;
-        }
-        .remove-btn {
-          background: none;
-          border: none;
-          color: #dc3545;
-          cursor: pointer;
-          font-size: 1.2rem;
-          padding: 0 0.5rem;
-        }
-        .total-cost {
-          display: flex;
-          justify-content: space-between;
-          font-size: 1.2rem;
-          margin: 1rem 0;
-          padding-top: 1rem;
-          border-top: 1px solid #ddd;
-        }
-        .save-build-btn {
-          width: 100%;
-          padding: 0.75rem;
-          background-color: #6c757d;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .save-build-btn:hover {
-          background-color: #5a6268;
-        }
-        .loading {
-          text-align: center;
-          padding: 2rem;
-          font-size: 1.2rem;
-        }
-        .search-management {
-          margin-top: 3rem;
-          padding: 2rem;
-          background-color: #f8f9fa;
-          border-radius: 8px;
-        }
-        .add-search-form {
-          margin-bottom: 2rem;
-          padding: 1.5rem;
-          background-color: white;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .form-group {
-          margin-bottom: 1rem;
-        }
-        .form-group label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-weight: bold;
-        }
-        .form-group input,
-        .form-group select {
-          width: 100%;
-          padding: 0.5rem;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-        }
-        .add-btn {
-          background-color: #28a745;
-          color: white;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 1rem;
-        }
-        .search-configs-list {
-          background-color: white;
-          padding: 1.5rem;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-        th, td {
-          padding: 0.75rem;
-          text-align: left;
-          border-bottom: 1px solid #ddd;
-        }
-        .status-btn {
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .status-btn.active {
-          background-color: #28a745;
-          color: white;
-        }
-        .status-btn.inactive {
-          background-color: #dc3545;
-          color: white;
-        }
-        .delete-btn {
-          background-color: #dc3545;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-      `}</style>
+  body {
+    background-color: #121212;
+    color: #e0e0e0;
+  }
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    color: #e0e0e0;
+  }
+  h1, h2, h3 {
+    color: #ffffff;
+  }
+  .price-card {
+    border: 1px solid #333;
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+  }
+  .price-card.selected {
+    border: 2px solid #0070f3;
+    background-color: #1a2a3a;
+  }
+  .price {
+    color: #4dabf7;
+  }
+  .store {
+    color: #a5a5a5;
+  }
+  .link {
+    background-color: #1971c2;
+    color: white;
+  }
+  .link:hover {
+    background-color: #1864ab;
+  }
+  .build-summary {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    border: 1px solid #333;
+  }
+  .part-item {
+    border-bottom: 1px solid #333;
+  }
+  .total-cost {
+    border-top: 1px solid #333;
+  }
+  .save-build-btn {
+    background-color: #495057;
+    color: white;
+  }
+  .save-build-btn:hover {
+    background-color: #3e444a;
+  }
+  .search-management {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+  }
+  .add-search-form {
+    background-color: #252525;
+    color: #e0e0e0;
+    border: 1px solid #333;
+  }
+  .form-group input,
+  .form-group select {
+    background-color: #333;
+    color: #e0e0e0;
+    border: 1px solid #444;
+  }
+  .search-configs-list {
+    background-color: #252525;
+    border: 1px solid #333;
+  }
+  table {
+    color: #e0e0e0;
+  }
+  th, td {
+    border-bottom: 1px solid #333;
+  }
+  /* Ajustes para os botões no dark mode */
+  .select-btn {
+    background-color: #2b8a3e;
+    color: white;
+  }
+  .select-btn:hover {
+    background-color: #2f9e44;
+  }
+  .remove-btn {
+    color: #ff6b6b;
+  }
+  .add-btn {
+    background-color: #2b8a3e;
+    color: white;
+  }
+  .add-btn:hover {
+    background-color: #2f9e44;
+  }
+  .status-btn.active {
+    background-color: #2b8a3e;
+  }
+  .status-btn.inactive {
+    background-color: #c92a2a;
+  }
+  .delete-btn {
+    background-color: #c92a2a;
+  }
+`}</style>
     </div>
   )
 }
