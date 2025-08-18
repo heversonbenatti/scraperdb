@@ -13,7 +13,8 @@ export default function PriceTracker() {
     keywords: '', 
     category: '', 
     subcategory: '', 
-    website: 'kabum' 
+    website: 'kabum',
+    link: ''
   })
 
   useEffect(() => {
@@ -67,6 +68,11 @@ export default function PriceTracker() {
   }, [])
 
   const handleCreateBuild = async () => {
+    if (!newBuild.name) {
+      alert('Build name is required')
+      return
+    }
+
     const { data, error } = await supabase
       .from('builds')
       .insert([newBuild])
@@ -78,25 +84,37 @@ export default function PriceTracker() {
   }
 
   const handleCreateSearch = async () => {
-    const keywordsArray = newSearch.keywords.split(',').map(k => k.trim())
-    const formattedKeywords = JSON.stringify([keywordsArray])
-    
-    const { data, error } = await supabase
-      .from('searches')
-      .insert([{ 
-        ...newSearch, 
-        keywords: formattedKeywords 
-      }])
-      .select()
-    
-    if (!error && data) {
-      setNewSearch({ 
-        search_text: '', 
-        keywords: '', 
-        category: '', 
-        subcategory: '', 
-        website: 'kabum' 
-      })
+    if (!newSearch.search_text && !newSearch.link) {
+      alert('Either search text or link must be provided')
+      return
+    }
+
+    try {
+      const keywordsArray = newSearch.keywords.split(',').map(k => k.trim())
+      const formattedKeywords = JSON.stringify([keywordsArray])
+      
+      const { data, error } = await supabase
+        .from('searches')
+        .insert([{ 
+          ...newSearch, 
+          keywords: formattedKeywords,
+          search_text: newSearch.search_text || null,
+          link: newSearch.link || null
+        }])
+        .select()
+      
+      if (!error && data) {
+        setNewSearch({ 
+          search_text: '', 
+          keywords: '', 
+          category: '', 
+          subcategory: '', 
+          website: 'kabum',
+          link: ''
+        })
+      }
+    } catch (error) {
+      console.error('Error creating search:', error)
     }
   }
 
@@ -152,9 +170,10 @@ export default function PriceTracker() {
             <h3>Create New Build</h3>
             <input
               type="text"
-              placeholder="Build Name"
+              placeholder="Build Name*"
               value={newBuild.name}
               onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
+              required
             />
             <input
               type="text"
@@ -178,17 +197,19 @@ export default function PriceTracker() {
                 <th>Category</th>
                 <th>Subcategory</th>
                 <th>Website</th>
+                <th>Link</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {searches.map(search => (
                 <tr key={search.id}>
-                  <td>{search.search_text}</td>
+                  <td>{search.search_text || '-'}</td>
                   <td>{JSON.parse(search.keywords).join(', ')}</td>
                   <td>{search.category}</td>
-                  <td>{search.subcategory}</td>
+                  <td>{search.subcategory || '-'}</td>
                   <td>{search.website}</td>
+                  <td>{search.link ? 'Yes' : 'No'}</td>
                   <td>
                     <button 
                       className="delete"
@@ -206,21 +227,23 @@ export default function PriceTracker() {
             <h3>Create New Search</h3>
             <input
               type="text"
-              placeholder="Search Text"
+              placeholder="Search Text (or provide link below)"
               value={newSearch.search_text}
               onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
             />
             <input
               type="text"
-              placeholder="Keywords (comma separated)"
+              placeholder="Keywords (comma separated)*"
               value={newSearch.keywords}
               onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
+              required
             />
             <input
               type="text"
-              placeholder="Category"
+              placeholder="Category*"
               value={newSearch.category}
               onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
+              required
             />
             <input
               type="text"
@@ -228,9 +251,16 @@ export default function PriceTracker() {
               value={newSearch.subcategory}
               onChange={(e) => setNewSearch({...newSearch, subcategory: e.target.value})}
             />
+            <input
+              type="text"
+              placeholder="Product Link (if no search text)"
+              value={newSearch.link}
+              onChange={(e) => setNewSearch({...newSearch, link: e.target.value})}
+            />
             <select
               value={newSearch.website}
               onChange={(e) => setNewSearch({...newSearch, website: e.target.value})}
+              required
             >
               <option value="kabum">Kabum</option>
               <option value="pichau">Pichau</option>
@@ -292,7 +322,10 @@ export default function PriceTracker() {
           padding-top: 1rem;
           margin-top: 1rem;
         }
-        .create-build input, .create-search input, .create-search select {
+        .create-build input, 
+        .create-search input, 
+        .create-search select,
+        .create-search textarea {
           display: block;
           margin-bottom: 0.5rem;
           padding: 0.5rem;
