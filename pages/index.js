@@ -165,23 +165,28 @@ export default function PriceTracker() {
       return
     }
 
-    const keywordsArray = newSearch.keywords
-      .split(',')
-      .map(k => k.trim())
-      .filter(k => k.length > 0)
-    
-    if (keywordsArray.length === 0) {
-      alert('Adicione pelo menos uma keyword')
+    // Split by pipe (|) to get groups, then split each group by commas
+    const keywordGroups = newSearch.keywords
+      .split('|')
+      .map(group => group.trim())
+      .filter(group => group.length > 0)
+      .map(group => 
+        group.split(',')
+          .map(k => k.trim())
+          .filter(k => k.length > 0)
+      )
+      .filter(group => group.length > 0)
+
+    if (keywordGroups.length === 0) {
+      alert('Adicione pelo menos uma keyword group (use | para separar grupos)')
       return
     }
-
-    const formattedKeywords = [keywordsArray]
 
     const { data, error } = await supabase
       .from('search_configs')
       .insert([{
         search_text: newSearch.search_text,
-        keywords: JSON.stringify(formattedKeywords),
+        keywords: JSON.stringify(keywordGroups),
         category: newSearch.category,
         website: newSearch.website,
         is_active: newSearch.is_active
@@ -317,13 +322,16 @@ export default function PriceTracker() {
           </div>
           
           <div className="form-group">
-            <label>Keywords (comma separated):</label>
+            <label>Keywords:</label>
             <input 
               type="text" 
               value={newSearch.keywords}
               onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
-              placeholder="Ex: x3d, 5500, processador"
+              placeholder="Ex: x3d,5500 | processador,amd | ryzen"
             />
+            <div className="helper-text">
+              Use commas to separate keywords within a group, and | to separate different groups
+            </div>
           </div>
           
           <div className="form-group">
@@ -416,6 +424,11 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
+        .helper-text {
+          font-size: 0.8rem;
+          color: #a5a5a5;
+          margin-top: 0.25rem;
+        }
         .keyword-groups {
           display: flex;
           flex-direction: column;
