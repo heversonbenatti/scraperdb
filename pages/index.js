@@ -202,15 +202,40 @@ export default function PriceTracker() {
   }
 
   const toggleSearchActive = async (id, currentStatus) => {
-    const { error } = await supabase
-      .from('search_configs')
-      .update({ is_active: !currentStatus })
-      .eq('id', id)
+    const newStatus = !currentStatus;
+    
+    // Optimistically update the UI
+    setSearchConfigs(prevConfigs =>
+      prevConfigs.map(config =>
+        config.id === id ? { ...config, is_active: newStatus } : config
+      )
+    );
 
-    if (error) {
-      console.error('Error toggling search active status:', error)
+    try {
+      const { error } = await supabase
+        .from('search_configs')
+        .update({ is_active: newStatus })
+        .eq('id', id);
+
+      if (error) {
+        // Revert if the update fails
+        setSearchConfigs(prevConfigs =>
+          prevConfigs.map(config =>
+            config.id === id ? { ...config, is_active: currentStatus } : config
+          )
+        );
+        console.error('Error toggling search active status:', error);
+      }
+    } catch (err) {
+      // Revert if there's an error
+      setSearchConfigs(prevConfigs =>
+        prevConfigs.map(config =>
+          config.id === id ? { ...config, is_active: currentStatus } : config
+        )
+      );
+      console.error('Error toggling search active status:', err);
     }
-  }
+  };
 
   const deleteSearchConfig = async (id) => {
     const { error } = await supabase
