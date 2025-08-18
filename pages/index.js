@@ -381,7 +381,15 @@ export default function PriceTracker() {
               {searchConfigs.map(config => (
                 <tr key={config.id}>
                   <td>{config.search_text}</td>
-                  <td>{JSON.parse(config.keywords)[0].join(', ')}</td>
+                  <td>
+                    <div className="keyword-groups">
+                      {JSON.parse(config.keywords).map((group, groupIdx) => (
+                        <div key={groupIdx} className="keyword-group">
+                          {group.join(', ')}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
                   <td>{config.category}</td>
                   <td>{config.website}</td>
                   <td>
@@ -408,6 +416,19 @@ export default function PriceTracker() {
       </div>
 
       <style jsx>{`
+        .keyword-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .keyword-group {
+          background-color: #333;
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.85rem;
+          display: inline-block;
+          margin-right: 0.25rem;
+        }
         body {
           background-color: #121212;
           color: #e0e0e0;
