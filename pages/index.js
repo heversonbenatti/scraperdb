@@ -11,7 +11,7 @@ export default function PriceTracker() {
   const [searchConfigs, setSearchConfigs] = useState([]);
   const [newSearch, setNewSearch] = useState({
     search_text: '',
-    keywords: '',
+    keywordGroups: [''], // Array of keyword group strings
     category: '',
     websites: {
       kabum: false,
@@ -81,13 +81,8 @@ export default function PriceTracker() {
           .filter(product => product.price > 0);
         updateLowestPrices(productsWithPrices)
         
-        // Fetch search configurations
-        const { data: configsData, error: configsError } = await supabase
-          .from('search_configs')
-          .select('*')
-          .order('created_at', { ascending: false })
-        
-        if (!configsError) setSearchConfigs(configsData)
+        // Fetch search configurations with keyword groups
+        await fetchSearchConfigs();
         
         setLoading(false)
       } catch (error) {
@@ -95,6 +90,38 @@ export default function PriceTracker() {
         setLoading(false)
       }
     }
+
+    const fetchSearchConfigs = async () => {
+      try {
+        // First get search configs
+        const { data: configsData, error: configsError } = await supabase
+          .from('search_configs')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (configsError) throw configsError;
+        
+        // Then get keyword groups for each config
+        const configsWithKeywords = await Promise.all(
+          configsData.map(async (config) => {
+            const { data: keywordData, error: keywordError } = await supabase
+              .from('keyword_groups')
+              .select('keywords')
+              .eq('search_config_id', config.id)
+              .order('id', { ascending: true });
+            
+            return {
+              ...config,
+              keywordGroups: keywordData?.map(kg => kg.keywords) || []
+            };
+          })
+        );
+        
+        setSearchConfigs(configsWithKeywords);
+      } catch (error) {
+        console.error('Error fetching search configs:', error);
+      }
+    };
 
     const updateLowestPrices = (products) => {
       const categories = {}
@@ -146,16 +173,21 @@ export default function PriceTracker() {
         event: '*',
         schema: 'public',
         table: 'search_configs'
-      }, payload => {
-        if (payload.eventType === 'INSERT') {
-          setSearchConfigs(prev => [payload.new, ...prev])
-        } else if (payload.eventType === 'UPDATE') {
-          setSearchConfigs(prev => prev.map(config => 
-            config.id === payload.new.id ? payload.new : config
-          ))
-        } else if (payload.eventType === 'DELETE') {
-          setSearchConfigs(prev => prev.filter(config => config.id !== payload.old.id))
-        }
+      }, async payload => {
+        // Refetch all search configs when there's a change
+        await fetchSearchConfigs();
+      })
+      .subscribe()
+
+    const keywordGroupsSubscription = supabase
+      .channel('keyword-groups-changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'keyword_groups'
+      }, async payload => {
+        // Refetch all search configs when keyword groups change
+        await fetchSearchConfigs();
       })
       .subscribe()
 
@@ -181,6 +213,7 @@ export default function PriceTracker() {
     return () => {
       supabase.removeChannel(productsSubscription)
       supabase.removeChannel(configsSubscription)
+      supabase.removeChannel(keywordGroupsSubscription)
       supabase.removeChannel(buildsSubscription)
     }
   }, [])
@@ -248,10 +281,42 @@ export default function PriceTracker() {
     }
   }
 
+  // Keyword group management
+  const addKeywordGroup = () => {
+    setNewSearch(prev => ({
+      ...prev,
+      keywordGroups: [...prev.keywordGroups, '']
+    }))
+  }
+
+  const removeKeywordGroup = (index) => {
+    setNewSearch(prev => ({
+      ...prev,
+      keywordGroups: prev.keywordGroups.filter((_, i) => i !== index)
+    }))
+  }
+
+  const updateKeywordGroup = (index, value) => {
+    setNewSearch(prev => ({
+      ...prev,
+      keywordGroups: prev.keywordGroups.map((group, i) => i === index ? value : group)
+    }))
+  }
+
   // Search configuration functions
   const addSearchConfig = async () => {
-    if (!newSearch.search_text || !newSearch.keywords || !newSearch.category) {
-      alert('Fill all required fields')
+    if (!newSearch.search_text || !newSearch.category) {
+      alert('Search term and category are required')
+      return
+    }
+
+    // Filter out empty keyword groups and validate
+    const validKeywordGroups = newSearch.keywordGroups
+      .map(group => group.trim())
+      .filter(group => group.length > 0)
+
+    if (validKeywordGroups.length === 0) {
+      alert('Add at least one keyword group')
       return
     }
 
@@ -265,41 +330,41 @@ export default function PriceTracker() {
       return
     }
 
-    // Split by pipe (|) to get groups, then split each group by commas
-    const keywordGroups = newSearch.keywords
-      .split('|')
-      .map(group => group.trim())
-      .filter(group => group.length > 0)
-      .map(group => 
-        group.split(',')
-          .map(k => k.trim())
-          .filter(k => k.length > 0)
-      )
-      .filter(group => group.length > 0)
+    try {
+      // Create search configs for each selected website
+      for (const website of selectedWebsites) {
+        // First insert the search config
+        const { data: configData, error: configError } = await supabase
+          .from('search_configs')
+          .insert([{
+            search_text: newSearch.search_text,
+            category: newSearch.category,
+            website: website,
+            is_active: newSearch.is_active
+          }])
+          .select()
 
-    if (keywordGroups.length === 0) {
-      alert('Add at least one keyword group (use | to separate groups)')
-      return
-    }
+        if (configError) throw configError
 
-    // Create one config per selected website
-    const configs = selectedWebsites.map(website => ({
-      search_text: newSearch.search_text,
-      keywords: JSON.stringify(keywordGroups),
-      category: newSearch.category,
-      website: website,
-      is_active: newSearch.is_active
-    }))
+        const searchConfigId = configData[0].id
 
-    const { data, error } = await supabase
-      .from('search_configs')
-      .insert(configs)
-      .select()
+        // Then insert keyword groups
+        const keywordGroupsData = validKeywordGroups.map(group => ({
+          search_config_id: searchConfigId,
+          keywords: group
+        }))
 
-    if (!error) {
+        const { error: keywordError } = await supabase
+          .from('keyword_groups')
+          .insert(keywordGroupsData)
+
+        if (keywordError) throw keywordError
+      }
+
+      // Reset form
       setNewSearch({
         search_text: '',
-        keywords: '',
+        keywordGroups: [''],
         category: '',
         websites: {
           kabum: false,
@@ -308,8 +373,12 @@ export default function PriceTracker() {
         },
         is_active: true
       })
-    } else {
+
+      alert('Search configurations added successfully!')
+
+    } catch (error) {
       console.error('Error adding search config:', error)
+      alert('Error adding search configuration: ' + error.message)
     }
   }
 
@@ -350,13 +419,23 @@ export default function PriceTracker() {
   };
 
   const deleteSearchConfig = async (id) => {
-    const { error } = await supabase
-      .from('search_configs')
-      .delete()
-      .eq('id', id)
+    try {
+      // Delete keyword groups first (they should cascade delete, but being explicit)
+      await supabase
+        .from('keyword_groups')
+        .delete()
+        .eq('search_config_id', id)
 
-    if (error) {
+      // Then delete the search config
+      const { error } = await supabase
+        .from('search_configs')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+    } catch (error) {
       console.error('Error deleting search config:', error)
+      alert('Error deleting search configuration: ' + error.message)
     }
   }
 
@@ -654,15 +733,35 @@ export default function PriceTracker() {
             </div>
             
             <div className="form-group">
-              <label>Keywords:</label>
-              <input 
-                type="text" 
-                value={newSearch.keywords}
-                onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
-                placeholder="Ex: x3d,5500 | processador,amd | ryzen"
-              />
+              <label>Keyword Groups:</label>
+              {newSearch.keywordGroups.map((group, index) => (
+                <div key={index} className="keyword-group-input">
+                  <input 
+                    type="text" 
+                    value={group}
+                    onChange={(e) => updateKeywordGroup(index, e.target.value)}
+                    placeholder="Ex: x3d,5500,processador"
+                  />
+                  {newSearch.keywordGroups.length > 1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => removeKeywordGroup(index)}
+                      className="remove-group-btn"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button 
+                type="button" 
+                onClick={addKeywordGroup}
+                className="add-group-btn"
+              >
+                Add Keyword Group
+              </button>
               <div className="helper-text">
-                Use commas to separate keywords within a group, and | to separate different groups
+                Each keyword group should contain comma-separated keywords. All keywords in a group must match for the product to be selected.
               </div>
             </div>
             
@@ -746,7 +845,7 @@ export default function PriceTracker() {
               <thead>
                 <tr>
                   <th>Term</th>
-                  <th>Keywords</th>
+                  <th>Keyword Groups</th>
                   <th>Category</th>
                   <th>Website</th>
                   <th>Status</th>
@@ -758,10 +857,10 @@ export default function PriceTracker() {
                   <tr key={config.id}>
                     <td>{config.search_text}</td>
                     <td>
-                      <div className="keyword-groups">
-                        {JSON.parse(config.keywords).map((group, groupIdx) => (
-                          <div key={groupIdx} className="keyword-group">
-                            {group.join(', ')}
+                      <div className="keyword-groups-display">
+                        {config.keywordGroups.map((group, groupIdx) => (
+                          <div key={groupIdx} className="keyword-group-display">
+                            {group}
                           </div>
                         ))}
                       </div>
@@ -859,6 +958,33 @@ export default function PriceTracker() {
           color: #e0e0e0;
           border: 1px solid #444;
           border-radius: 4px;
+        }
+        .keyword-group-input {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 0.5rem;
+          align-items: center;
+        }
+        .keyword-group-input input {
+          flex: 1;
+        }
+        .remove-group-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .add-group-btn {
+          background-color: #1971c2;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 0.5rem;
         }
         .category-checkboxes {
           display: grid;
@@ -993,12 +1119,12 @@ export default function PriceTracker() {
         th {
           background-color: #333;
         }
-        .keyword-groups {
+        .keyword-groups-display {
           display: flex;
           flex-direction: column;
           gap: 0.25rem;
         }
-        .keyword-group {
+        .keyword-group-display {
           background-color: #333;
           padding: 0.25rem 0.5rem;
           border-radius: 4px;
