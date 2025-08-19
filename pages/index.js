@@ -1,7 +1,7 @@
 // index.js
 import { supabase } from '../lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import Login from '../components/Login';
+import Login from '../components/login';
 
 export default function PriceTracker() {
   const [userRole, setUserRole] = useState(null); // 'admin', 'guest', or null
