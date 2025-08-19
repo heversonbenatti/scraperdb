@@ -26,6 +26,96 @@ export default function PriceTracker() {
   });
   const [selectedBuild, setSelectedBuild] = useState(null);
   const [showBuildForm, setShowBuildForm] = useState(false);
+  
+  // Enhanced real-time state
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [priceAlerts, setPriceAlerts] = useState([]);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [newItems, setNewItems] = useState(new Set());
+  const [priceChanged, setPriceChanged] = useState(new Set());
+
+  // Store timestamp on any real-time update
+  const storeUpdateTimestamp = () => {
+    const timestamp = new Date().toISOString();
+    setLastUpdate(timestamp);
+  };
+
+  // Connection status indicator component
+  const ConnectionIndicator = () => (
+    <div className="connection-indicator">
+      <div className={`status-dot ${connectionStatus}`}></div>
+      <span>
+        {connectionStatus === 'connected' && '🟢 Live'}
+        {connectionStatus === 'connecting' && '🟡 Connecting...'}
+        {connectionStatus === 'disconnected' && '🔴 Disconnected'}
+      </span>
+      {lastUpdate && (
+        <span className="last-update">
+          Updated: {new Date(lastUpdate).toLocaleTimeString()}
+        </span>
+      )}
+    </div>
+  );
+
+  // Price change notification component
+  const PriceAlert = ({ alert, onDismiss }) => (
+    <div className="price-alert">
+      <div className="alert-content">
+        <strong>{alert.productName}</strong>
+        <span>Price dropped to R$ {alert.newPrice.toFixed(2)}</span>
+        <small>Save R$ {(alert.oldPrice - alert.newPrice).toFixed(2)}</small>
+      </div>
+      <button onClick={() => onDismiss(alert.id)} className="dismiss-btn">×</button>
+    </div>
+  );
+
+  // Enhanced price card with update indicators
+  const EnhancedPriceCard = ({ item, index }) => {
+    const isNew = newItems.has(item.id);
+    const hasPriceChanged = priceChanged.has(item.id);
+    
+    return (
+      <div key={index} className={`price-card ${isNew ? 'new-item' : ''} ${hasPriceChanged ? 'price-changed' : ''}`}>
+        <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
+        <p className="product-name">{item.name}</p>
+        <div className="price-container">
+          <p className="price">R$ {item.price.toFixed(2)}</p>
+          {hasPriceChanged && <span className="price-change-indicator">💥 Updated!</span>}
+        </div>
+        <p className="store">Store: {item.website}</p>
+        {item.lastUpdated && (
+          <p className="last-updated">
+            Updated: {new Date(item.lastUpdated).toLocaleTimeString()}
+          </p>
+        )}
+        <div className="actions">
+          <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
+            View Product
+          </a>
+        </div>
+      </div>
+    );
+  };
+
+  // Auto-refresh toggle component
+  const AutoRefreshToggle = () => (
+    <div className="auto-refresh-toggle">
+      <label>
+        <input 
+          type="checkbox" 
+          checked={autoRefresh} 
+          onChange={(e) => setAutoRefresh(e.target.checked)} 
+        />
+        Auto-refresh enabled
+      </label>
+    </div>
+  );
+
+  // Dismiss price alert
+  const dismissAlert = (alertId) => {
+    setPriceAlerts(prev => prev.filter(alert => alert.id !== alertId));
+  };
 
   // Check if user is already logged in
   useEffect(() => {
@@ -39,6 +129,8 @@ export default function PriceTracker() {
 
     const fetchInitialData = async () => {
       try {
+        setConnectionStatus('connecting');
+        
         // Fetch builds first
         const { data: buildsData, error: buildsError } = await supabase
           .from('builds')
@@ -84,10 +176,13 @@ export default function PriceTracker() {
         // Fetch search configurations with keyword groups
         await fetchSearchConfigs();
         
-        setLoading(false)
+        setConnectionStatus('connected');
+        storeUpdateTimestamp();
+        setLoading(false);
       } catch (error) {
-        console.error('Error fetching data:', error)
-        setLoading(false)
+        console.error('Error fetching data:', error);
+        setConnectionStatus('disconnected');
+        setLoading(false);
       }
     }
 
@@ -134,7 +229,8 @@ export default function PriceTracker() {
             price: product.price,
             website: product.website,
             link: product.product_link,
-            category: product.category
+            category: product.category,
+            lastUpdated: product.lastUpdated
           }
         }
       })
@@ -143,80 +239,256 @@ export default function PriceTracker() {
 
     checkSession();
     
-    // Set up realtime subscriptions
-    const productsSubscription = supabase
-      .channel('price-changes')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'prices'
-      }, payload => {
-        const updatedProduct = {
-          id: payload.new.product_id,
-          price: payload.new.price,
-          lastUpdated: payload.new.collected_at
-        }
-        setLowestPrices(prev => {
-          const updated = prev.map(item => 
-            item.id === updatedProduct.id ? 
-            { ...item, price: updatedProduct.price, lastUpdated: updatedProduct.lastUpdated } : 
-            item
-          )
-          return updated
+    // Enhanced real-time subscriptions
+    let retryCount = 0;
+    const maxRetries = 5;
+    
+    const setupRealtimeSubscriptions = () => {
+      // Products subscription
+      const productsSubscription = supabase
+        .channel(`products-changes-${retryCount}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'products'
+        }, async payload => {
+          console.log('Product changed:', payload);
+          storeUpdateTimestamp();
+          setConnectionStatus('connected');
+          
+          if (payload.eventType === 'INSERT') {
+            setNewItems(prev => new Set([...prev, payload.new.id]));
+            setTimeout(() => {
+              setNewItems(prev => {
+                const updated = new Set(prev);
+                updated.delete(payload.new.id);
+                return updated;
+              });
+            }, 5000);
+          }
+          
+          // Refetch all data when products change
+          await fetchInitialData();
         })
-      })
-      .subscribe()
+        .subscribe((status) => {
+          console.log('Products subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            setConnectionStatus('connected');
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR') {
+            setConnectionStatus('disconnected');
+            handleSubscriptionError();
+          }
+        });
 
-    const configsSubscription = supabase
-      .channel('config-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'search_configs'
-      }, async payload => {
-        // Refetch all search configs when there's a change
-        await fetchSearchConfigs();
-      })
-      .subscribe()
+      // Enhanced prices subscription
+      const pricesSubscription = supabase
+        .channel(`prices-changes-${retryCount}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'prices'
+        }, async payload => {
+          console.log('New price:', payload);
+          storeUpdateTimestamp();
+          setConnectionStatus('connected');
+          
+          try {
+            const { data: productData, error } = await supabase
+              .from('products')
+              .select('*')
+              .eq('id', payload.new.product_id)
+              .single();
+            
+            if (!error && productData) {
+              const updatedProduct = {
+                ...productData,
+                price: payload.new.price,
+                lastUpdated: payload.new.collected_at
+              };
+              
+              // Update the lowest prices state
+              setLowestPrices(prevPrices => {
+                const updatedPrices = [...prevPrices];
+                const existingIndex = updatedPrices.findIndex(item => 
+                  item.category === productData.category
+                );
+                
+                let oldPrice = null;
+                
+                if (existingIndex >= 0) {
+                  oldPrice = updatedPrices[existingIndex].price;
+                  // Check if this is a better price for the category
+                  if (payload.new.price < updatedPrices[existingIndex].price) {
+                    updatedPrices[existingIndex] = updatedProduct;
+                    
+                    // Mark as price changed
+                    setPriceChanged(prev => new Set([...prev, productData.id]));
+                    setTimeout(() => {
+                      setPriceChanged(prev => {
+                        const updated = new Set(prev);
+                        updated.delete(productData.id);
+                        return updated;
+                      });
+                    }, 3000);
+                  }
+                } else {
+                  // New category, add it
+                  updatedPrices.push(updatedProduct);
+                  setNewItems(prev => new Set([...prev, productData.id]));
+                  setTimeout(() => {
+                    setNewItems(prev => {
+                      const updated = new Set(prev);
+                      updated.delete(productData.id);
+                      return updated;
+                    });
+                  }, 5000);
+                }
+                
+                // Show price drop alert
+                if (oldPrice && payload.new.price < oldPrice * 0.95) { // 5% or more drop
+                  const alertId = Date.now();
+                  setPriceAlerts(prev => [...prev, {
+                    id: alertId,
+                    productName: productData.name,
+                    oldPrice: oldPrice,
+                    newPrice: payload.new.price,
+                    timestamp: new Date()
+                  }]);
+                  
+                  // Auto-dismiss after 10 seconds
+                  setTimeout(() => {
+                    dismissAlert(alertId);
+                  }, 10000);
+                }
+                
+                return updatedPrices;
+              });
+            }
+          } catch (error) {
+            console.error('Error processing price update:', error);
+          }
+        })
+        .subscribe((status) => {
+          console.log('Prices subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            setConnectionStatus('connected');
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR') {
+            setConnectionStatus('disconnected');
+            handleSubscriptionError();
+          }
+        });
 
-    const keywordGroupsSubscription = supabase
-      .channel('keyword-groups-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'keyword_groups'
-      }, async payload => {
-        // Refetch all search configs when keyword groups change
-        await fetchSearchConfigs();
-      })
-      .subscribe()
+      // Search configs subscription
+      const configsSubscription = supabase
+        .channel(`config-changes-${retryCount}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'search_configs'
+        }, async payload => {
+          console.log('Search config changed:', payload);
+          storeUpdateTimestamp();
+          setConnectionStatus('connected');
+          await fetchSearchConfigs();
+        })
+        .subscribe();
 
-    const buildsSubscription = supabase
-      .channel('build-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'builds'
-      }, payload => {
-        if (payload.eventType === 'INSERT') {
-          setBuilds(prev => [payload.new, ...prev])
-        } else if (payload.eventType === 'UPDATE') {
-          setBuilds(prev => prev.map(build => 
-            build.id === payload.new.id ? payload.new : build
-          ))
-        } else if (payload.eventType === 'DELETE') {
-          setBuilds(prev => prev.filter(build => build.id !== payload.old.id))
+      // Keyword groups subscription
+      const keywordGroupsSubscription = supabase
+        .channel(`keyword-groups-changes-${retryCount}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'keyword_groups'
+        }, async payload => {
+          console.log('Keyword groups changed:', payload);
+          storeUpdateTimestamp();
+          setConnectionStatus('connected');
+          await fetchSearchConfigs();
+        })
+        .subscribe();
+
+      // Builds subscription
+      const buildsSubscription = supabase
+        .channel(`build-changes-${retryCount}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'builds'
+        }, payload => {
+          console.log('Build changed:', payload);
+          storeUpdateTimestamp();
+          setConnectionStatus('connected');
+          
+          if (payload.eventType === 'INSERT') {
+            setBuilds(prev => [payload.new, ...prev])
+          } else if (payload.eventType === 'UPDATE') {
+            setBuilds(prev => prev.map(build => 
+              build.id === payload.new.id ? payload.new : build
+            ))
+          } else if (payload.eventType === 'DELETE') {
+            setBuilds(prev => prev.filter(build => build.id !== payload.old.id))
+          }
+        })
+        .subscribe();
+
+      const handleSubscriptionError = () => {
+        if (retryCount < maxRetries) {
+          retryCount++;
+          console.log(`🔄 Retrying real-time connection (${retryCount}/${maxRetries})`);
+          
+          setTimeout(() => {
+            // Clean up current subscriptions
+            supabase.removeChannel(productsSubscription);
+            supabase.removeChannel(pricesSubscription);
+            supabase.removeChannel(configsSubscription);
+            supabase.removeChannel(keywordGroupsSubscription);
+            supabase.removeChannel(buildsSubscription);
+            
+            // Retry with new subscriptions
+            setupRealtimeSubscriptions();
+          }, Math.pow(2, retryCount) * 1000);
+        } else {
+          console.error('💥 Max retries reached for real-time connection');
+          setConnectionStatus('disconnected');
         }
-      })
-      .subscribe()
+      };
+
+      return {
+        productsSubscription,
+        pricesSubscription,
+        configsSubscription,
+        keywordGroupsSubscription,
+        buildsSubscription
+      };
+    };
+
+    const subscriptions = setupRealtimeSubscriptions();
+    
+    // Periodic backup refresh
+    let intervalId;
+    if (autoRefresh) {
+      intervalId = setInterval(async () => {
+        console.log('Periodic refresh check...');
+        const now = Date.now();
+        const lastUpdateTime = lastUpdate ? new Date(lastUpdate).getTime() : 0;
+        
+        if (!lastUpdate || (now - lastUpdateTime) > 300000) { // 5 minutes
+          console.log('No recent updates, refreshing data...');
+          await fetchInitialData();
+        }
+      }, 120000); // Check every 2 minutes
+    }
 
     return () => {
-      supabase.removeChannel(productsSubscription)
-      supabase.removeChannel(configsSubscription)
-      supabase.removeChannel(keywordGroupsSubscription)
-      supabase.removeChannel(buildsSubscription)
+      if (intervalId) clearInterval(intervalId);
+      Object.values(subscriptions).forEach(sub => {
+        supabase.removeChannel(sub);
+      });
     }
-  }, [])
+  }, [autoRefresh])
 
   // Calculate total price for a build
   const calculateBuildTotal = (buildCategories) => {
@@ -462,7 +734,8 @@ export default function PriceTracker() {
         <div className="header">
           <div className="build-header">
             <h1>{selectedBuild.name}</h1>
-            <div>
+            <div className="header-controls">
+              <ConnectionIndicator />
               <button 
                 onClick={() => setSelectedBuild(null)}
                 className="back-btn"
@@ -482,19 +755,20 @@ export default function PriceTracker() {
           </div>
         </div>
         
+        {/* Price alerts */}
+        {priceAlerts.length > 0 && (
+          <div className="alerts-container">
+            {priceAlerts.map(alert => (
+              <PriceAlert key={alert.id} alert={alert} onDismiss={dismissAlert} />
+            ))}
+          </div>
+        )}
+        
+        <AutoRefreshToggle />
+        
         <div className="price-grid">
           {buildItems.filter(Boolean).map((item, index) => (
-            <div key={index} className="price-card">
-              <h2>{item.category.replace('_', ' ').toUpperCase()}</h2>
-              <p className="product-name">{item.name}</p>
-              <p className="price">R$ {item.price.toFixed(2)}</p>
-              <p className="store">Store: {item.website}</p>
-              <div className="actions">
-                <a href={item.link} target="_blank" rel="noopener noreferrer" className="link">
-                  View Product
-                </a>
-              </div>
-            </div>
+            <EnhancedPriceCard key={index} item={item} index={index} />
           ))}
         </div>
 
@@ -509,6 +783,11 @@ export default function PriceTracker() {
             align-items: center;
             margin-bottom: 2rem;
           }
+          .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+          }
           .back-btn {
             background-color: #333;
             color: white;
@@ -516,7 +795,6 @@ export default function PriceTracker() {
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            margin-right: 1rem;
           }
           .build-total {
             text-align: right;
@@ -528,6 +806,9 @@ export default function PriceTracker() {
           .build-total h2 {
             margin: 0;
             color: #4dabf7;
+          }
+          .alerts-container {
+            margin-bottom: 2rem;
           }
           .container {
             max-width: 1400px;
@@ -612,6 +893,129 @@ export default function PriceTracker() {
             border-radius: 4px;
             cursor: pointer;
           }
+          
+          /* Enhanced real-time styles */
+          .connection-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background-color: #1e1e1e;
+            border-radius: 4px;
+            font-size: 0.9rem;
+          }
+          .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+          }
+          .status-dot.connected {
+            background-color: #4caf50;
+          }
+          .status-dot.connecting {
+            background-color: #ff9800;
+          }
+          .status-dot.disconnected {
+            background-color: #f44336;
+          }
+          @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+          }
+          .last-update {
+            font-size: 0.8rem;
+            color: #a5a5a5;
+            margin-left: 1rem;
+          }
+          .price-alert {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #2e7d32;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            animation: slideIn 0.3s ease-out;
+          }
+          @keyframes slideIn {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+          }
+          .alert-content {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+          }
+          .dismiss-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .price-card.new-item {
+            border: 2px solid #4caf50;
+            animation: highlight 3s ease-out;
+          }
+          .price-card.price-changed {
+            border: 2px solid #ff9800;
+            animation: priceChange 2s ease-out;
+          }
+          @keyframes highlight {
+            0% { box-shadow: 0 0 20px #4caf50; }
+            100% { box-shadow: none; }
+          }
+          @keyframes priceChange {
+            0% { box-shadow: 0 0 20px #ff9800; }
+            100% { box-shadow: none; }
+          }
+          .price-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 1rem 0;
+          }
+          .price-change-indicator {
+            font-size: 0.8rem;
+            background-color: #ff9800;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            animation: bounce 1s ease-out;
+          }
+          @keyframes bounce {
+            0%, 20%, 60%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-10px); }
+            80% { transform: translateY(-5px); }
+          }
+          .last-updated {
+            font-size: 0.8rem;
+            color: #a5a5a5;
+            margin: 0.5rem 0;
+          }
+          .auto-refresh-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 1rem 0;
+          }
+          .auto-refresh-toggle label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #e0e0e0;
+          }
         `}</style>
       </div>
     )
@@ -622,16 +1026,30 @@ export default function PriceTracker() {
     <div className={`container ${userRole === 'guest' ? 'guest-view' : ''}`}>
       <div className="header">
         <h1>pc scraper</h1>
-        <button 
-          onClick={() => {
-            supabase.auth.signOut();
-            setUserRole(null);
-          }}
-          className="logout-btn"
-        >
-          Sair
-        </button>
+        <div className="header-controls">
+          <ConnectionIndicator />
+          <button 
+            onClick={() => {
+              supabase.auth.signOut();
+              setUserRole(null);
+            }}
+            className="logout-btn"
+          >
+            Sair
+          </button>
+        </div>
       </div>
+      
+      {/* Price alerts */}
+      {priceAlerts.length > 0 && (
+        <div className="alerts-container">
+          {priceAlerts.map(alert => (
+            <PriceAlert key={alert.id} alert={alert} onDismiss={dismissAlert} />
+          ))}
+        </div>
+      )}
+      
+      <AutoRefreshToggle />
       
       <div className="builds-section">
         <div className="builds-header">
@@ -915,8 +1333,16 @@ export default function PriceTracker() {
           align-items: center;
           margin-bottom: 2rem;
         }
+        .header-controls {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
         h1, h2, h3 {
           color: #ffffff;
+        }
+        .alerts-container {
+          margin-bottom: 2rem;
         }
         .builds-section {
           margin-bottom: 3rem;
@@ -1159,6 +1585,129 @@ export default function PriceTracker() {
           border: none;
           border-radius: 4px;
           cursor: pointer;
+        }
+        
+        /* Enhanced real-time styles */
+        .connection-indicator {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem;
+          background-color: #1e1e1e;
+          border-radius: 4px;
+          font-size: 0.9rem;
+        }
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          animation: pulse 2s infinite;
+        }
+        .status-dot.connected {
+          background-color: #4caf50;
+        }
+        .status-dot.connecting {
+          background-color: #ff9800;
+        }
+        .status-dot.disconnected {
+          background-color: #f44336;
+        }
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
+        }
+        .last-update {
+          font-size: 0.8rem;
+          color: #a5a5a5;
+          margin-left: 1rem;
+        }
+        .price-alert {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background-color: #2e7d32;
+          color: white;
+          padding: 1rem;
+          border-radius: 8px;
+          margin-bottom: 1rem;
+          animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+          from { transform: translateY(-100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .alert-content {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .dismiss-btn {
+          background: none;
+          border: none;
+          color: white;
+          font-size: 1.5rem;
+          cursor: pointer;
+          padding: 0;
+          width: 2rem;
+          height: 2rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .price-card.new-item {
+          border: 2px solid #4caf50;
+          animation: highlight 3s ease-out;
+        }
+        .price-card.price-changed {
+          border: 2px solid #ff9800;
+          animation: priceChange 2s ease-out;
+        }
+        @keyframes highlight {
+          0% { box-shadow: 0 0 20px #4caf50; }
+          100% { box-shadow: none; }
+        }
+        @keyframes priceChange {
+          0% { box-shadow: 0 0 20px #ff9800; }
+          100% { box-shadow: none; }
+        }
+        .price-container {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 1rem 0;
+        }
+        .price-change-indicator {
+          font-size: 0.8rem;
+          background-color: #ff9800;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border-radius: 12px;
+          animation: bounce 1s ease-out;
+        }
+        @keyframes bounce {
+          0%, 20%, 60%, 100% { transform: translateY(0); }
+          40% { transform: translateY(-10px); }
+          80% { transform: translateY(-5px); }
+        }
+        .last-updated {
+          font-size: 0.8rem;
+          color: #a5a5a5;
+          margin: 0.5rem 0;
+        }
+        .auto-refresh-toggle {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin: 1rem 0;
+        }
+        .auto-refresh-toggle label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+          font-size: 0.9rem;
+          color: #e0e0e0;
         }
       `}</style>
     </div>
