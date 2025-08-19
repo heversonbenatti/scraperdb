@@ -1,12 +1,14 @@
 // index.js
-import { supabase } from '../lib/supabaseClient'
-import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabaseClient';
+import { useEffect, useState } from 'react';
+import Login from '../components/Login';
 
 export default function PriceTracker() {
-  const [builds, setBuilds] = useState([])
-  const [lowestPrices, setLowestPrices] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [searchConfigs, setSearchConfigs] = useState([])
+  const [userRole, setUserRole] = useState(null); // 'admin', 'guest', or null
+  const [builds, setBuilds] = useState([]);
+  const [lowestPrices, setLowestPrices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchConfigs, setSearchConfigs] = useState([]);
   const [newSearch, setNewSearch] = useState({
     search_text: '',
     keywords: '',
@@ -17,26 +19,34 @@ export default function PriceTracker() {
       terabyte: false
     },
     is_active: true
-  })
+  });
   const [newBuild, setNewBuild] = useState({
     name: '',
     categories: []
-  })
-  const [selectedBuild, setSelectedBuild] = useState(null)
-  const [showBuildForm, setShowBuildForm] = useState(false)
+  });
+  const [selectedBuild, setSelectedBuild] = useState(null);
+  const [showBuildForm, setShowBuildForm] = useState(false);
 
-  // Fetch initial data
+  // Check if user is already logged in
   useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setUserRole('admin');
+      }
+      fetchInitialData();
+    };
+
     const fetchInitialData = async () => {
       try {
         // Fetch builds first
         const { data: buildsData, error: buildsError } = await supabase
           .from('builds')
           .select('*')
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: false });
 
-        if (buildsError) throw buildsError
-        setBuilds(buildsData || [])
+        if (buildsError) throw buildsError;
+        setBuilds(buildsData || []);
 
         // Fetch products and prices
         const { data: productsData, error: productsError } = await supabase
@@ -47,9 +57,9 @@ export default function PriceTracker() {
             category,
             website,
             product_link
-          `)
+          `);
 
-        if (productsError) throw productsError
+        if (productsError) throw productsError;
 
         const pricesPromises = productsData.map(async (product) => {
           const { data: priceData, error: priceError } = await supabase
@@ -65,7 +75,7 @@ export default function PriceTracker() {
             price: priceData?.price || 0,
             lastUpdated: priceData?.collected_at
           }
-        })
+        });
 
         const productsWithPrices = (await Promise.all(pricesPromises))
           .filter(product => product.price > 0);
@@ -104,9 +114,8 @@ export default function PriceTracker() {
       setLowestPrices(Object.values(categories))
     }
 
-    // Initial fetch
-    fetchInitialData()
-
+    checkSession();
+    
     // Set up realtime subscriptions
     const productsSubscription = supabase
       .channel('price-changes')
@@ -351,6 +360,15 @@ export default function PriceTracker() {
     }
   }
 
+  if (!userRole) {
+    return (
+      <Login 
+        onLogin={(role) => setUserRole(role)} 
+        onGuest={(role) => setUserRole(role)} 
+      />
+    );
+  }
+
   if (loading) return <div className="loading">Loading...</div>
 
   if (selectedBuild) {
@@ -361,15 +379,28 @@ export default function PriceTracker() {
     const totalPrice = calculateBuildTotal(buildCategories)
 
     return (
-      <div className="container">
-        <div className="build-header">
-          <h1>{selectedBuild.name}</h1>
-          <button 
-            onClick={() => setSelectedBuild(null)}
-            className="back-btn"
-          >
-            Back to Builds
-          </button>
+      <div className={`container ${userRole === 'guest' ? 'guest-view' : ''}`}>
+        <div className="header">
+          <div className="build-header">
+            <h1>{selectedBuild.name}</h1>
+            <div>
+              <button 
+                onClick={() => setSelectedBuild(null)}
+                className="back-btn"
+              >
+                Back to Builds
+              </button>
+              <button 
+                onClick={() => {
+                  supabase.auth.signOut();
+                  setUserRole(null);
+                }}
+                className="logout-btn"
+              >
+                Sair
+              </button>
+            </div>
+          </div>
         </div>
         
         <div className="price-grid">
@@ -406,6 +437,7 @@ export default function PriceTracker() {
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            margin-right: 1rem;
           }
           .build-total {
             text-align: right;
@@ -423,6 +455,12 @@ export default function PriceTracker() {
             margin: 0 auto;
             padding: 2rem;
             color: #e0e0e0;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
           }
           h1 {
             text-align: center;
@@ -487,6 +525,14 @@ export default function PriceTracker() {
             font-size: 1.2rem;
             color: #e0e0e0;
           }
+          .logout-btn {
+            background-color: #c92a2a;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          }
         `}</style>
       </div>
     )
@@ -494,21 +540,34 @@ export default function PriceTracker() {
 
   // Main view with builds list
   return (
-    <div className="container">
-      <h1>pc scraper</h1>
+    <div className={`container ${userRole === 'guest' ? 'guest-view' : ''}`}>
+      <div className="header">
+        <h1>pc scraper</h1>
+        <button 
+          onClick={() => {
+            supabase.auth.signOut();
+            setUserRole(null);
+          }}
+          className="logout-btn"
+        >
+          Sair
+        </button>
+      </div>
       
       <div className="builds-section">
         <div className="builds-header">
           <h2>BUILDS</h2>
-          <button 
-            onClick={() => setShowBuildForm(!showBuildForm)}
-            className="add-build-btn"
-          >
-            {showBuildForm ? 'Cancel' : 'Add New Build'}
-          </button>
+          {userRole === 'admin' && (
+            <button 
+              onClick={() => setShowBuildForm(!showBuildForm)}
+              className="add-build-btn"
+            >
+              {showBuildForm ? 'Cancel' : 'Add New Build'}
+            </button>
+          )}
         </div>
 
-        {showBuildForm && (
+        {showBuildForm && userRole === 'admin' && (
           <div className="build-form">
             <div className="form-group">
               <label>Build Name:</label>
@@ -551,12 +610,14 @@ export default function PriceTracker() {
                   <h3 onClick={() => setSelectedBuild(build)} className="build-name">
                     {build.name}
                   </h3>
-                  <button 
-                    onClick={() => deleteBuild(build.id)}
-                    className="delete-btn"
-                  >
-                    Remove
-                  </button>
+                  {userRole === 'admin' && (
+                    <button 
+                      onClick={() => deleteBuild(build.id)}
+                      className="delete-btn"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
                 
                 <div className="build-categories">
@@ -576,158 +637,160 @@ export default function PriceTracker() {
         </div>
       </div>
 
-      <div className="search-management">
-        <h2>SEARCHES</h2>
-        
-        <div className="add-search-form">
-          <h3>Add New Search</h3>
-          <div className="form-group">
-            <label>Search Term:</label>
-            <input 
-              type="text" 
-              value={newSearch.search_text}
-              onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
-              placeholder="Ex: amd ryzen 5"
-            />
-          </div>
+      {userRole === 'admin' && (
+        <div className="search-management">
+          <h2>SEARCHES</h2>
           
-          <div className="form-group">
-            <label>Keywords:</label>
-            <input 
-              type="text" 
-              value={newSearch.keywords}
-              onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
-              placeholder="Ex: x3d,5500 | processador,amd | ryzen"
-            />
-            <div className="helper-text">
-              Use commas to separate keywords within a group, and | to separate different groups
-            </div>
-          </div>
-          
-          <div className="form-group">
-            <label>Category:</label>
-            <input 
-              type="text" 
-              value={newSearch.category}
-              onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
-              placeholder="Ex: cpu_2"
-            />
-          </div>
-          
-          <div className="form-group">
-            <label>Websites:</label>
-            <div className="website-checkboxes">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newSearch.websites.kabum}
-                  onChange={(e) => setNewSearch({
-                    ...newSearch,
-                    websites: {
-                      ...newSearch.websites,
-                      kabum: e.target.checked
-                    }
-                  })}
-                />
-                Kabum
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newSearch.websites.pichau}
-                  onChange={(e) => setNewSearch({
-                    ...newSearch,
-                    websites: {
-                      ...newSearch.websites,
-                      pichau: e.target.checked
-                    }
-                  })}
-                />
-                Pichau
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={newSearch.websites.terabyte}
-                  onChange={(e) => setNewSearch({
-                    ...newSearch,
-                    websites: {
-                      ...newSearch.websites,
-                      terabyte: e.target.checked
-                    }
-                  })}
-                />
-                Terabyte
-              </label>
-            </div>
-          </div>
-          
-          <div className="form-group">
-            <label>
+          <div className="add-search-form">
+            <h3>Add New Search</h3>
+            <div className="form-group">
+              <label>Search Term:</label>
               <input 
-                type="checkbox" 
-                checked={newSearch.is_active}
-                onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
+                type="text" 
+                value={newSearch.search_text}
+                onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
+                placeholder="Ex: amd ryzen 5"
               />
-              Active
-            </label>
+            </div>
+            
+            <div className="form-group">
+              <label>Keywords:</label>
+              <input 
+                type="text" 
+                value={newSearch.keywords}
+                onChange={(e) => setNewSearch({...newSearch, keywords: e.target.value})}
+                placeholder="Ex: x3d,5500 | processador,amd | ryzen"
+              />
+              <div className="helper-text">
+                Use commas to separate keywords within a group, and | to separate different groups
+              </div>
+            </div>
+            
+            <div className="form-group">
+              <label>Category:</label>
+              <input 
+                type="text" 
+                value={newSearch.category}
+                onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
+                placeholder="Ex: cpu_2"
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Websites:</label>
+              <div className="website-checkboxes">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newSearch.websites.kabum}
+                    onChange={(e) => setNewSearch({
+                      ...newSearch,
+                      websites: {
+                        ...newSearch.websites,
+                        kabum: e.target.checked
+                      }
+                    })}
+                  />
+                  Kabum
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newSearch.websites.pichau}
+                    onChange={(e) => setNewSearch({
+                      ...newSearch,
+                      websites: {
+                        ...newSearch.websites,
+                        pichau: e.target.checked
+                      }
+                    })}
+                  />
+                  Pichau
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newSearch.websites.terabyte}
+                    onChange={(e) => setNewSearch({
+                      ...newSearch,
+                      websites: {
+                        ...newSearch.websites,
+                        terabyte: e.target.checked
+                      }
+                    })}
+                  />
+                  Terabyte
+                </label>
+              </div>
+            </div>
+            
+            <div className="form-group">
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={newSearch.is_active}
+                  onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
+                />
+                Active
+              </label>
+            </div>
+            
+            <button onClick={addSearchConfig} className="add-btn">
+              Add Search
+            </button>
           </div>
           
-          <button onClick={addSearchConfig} className="add-btn">
-            Add Search
-          </button>
-        </div>
-        
-        <div className="search-configs-list">
-          <h3>Configured Searches</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Term</th>
-                <th>Keywords</th>
-                <th>Category</th>
-                <th>Website</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {searchConfigs.map(config => (
-                <tr key={config.id}>
-                  <td>{config.search_text}</td>
-                  <td>
-                    <div className="keyword-groups">
-                      {JSON.parse(config.keywords).map((group, groupIdx) => (
-                        <div key={groupIdx} className="keyword-group">
-                          {group.join(', ')}
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                  <td>{config.category}</td>
-                  <td>{config.website}</td>
-                  <td>
-                    <button 
-                      onClick={() => toggleSearchActive(config.id, config.is_active)}
-                      className={`status-btn ${config.is_active ? 'active' : 'inactive'}`}
-                    >
-                      {config.is_active ? 'Active' : 'Inactive'}
-                    </button>
-                  </td>
-                  <td>
-                    <button 
-                      onClick={() => deleteSearchConfig(config.id)}
-                      className="delete-btn"
-                    >
-                      Remove
-                    </button>
-                  </td>
+          <div className="search-configs-list">
+            <h3>Configured Searches</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Term</th>
+                  <th>Keywords</th>
+                  <th>Category</th>
+                  <th>Website</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {searchConfigs.map(config => (
+                  <tr key={config.id}>
+                    <td>{config.search_text}</td>
+                    <td>
+                      <div className="keyword-groups">
+                        {JSON.parse(config.keywords).map((group, groupIdx) => (
+                          <div key={groupIdx} className="keyword-group">
+                            {group.join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td>{config.category}</td>
+                    <td>{config.website}</td>
+                    <td>
+                      <button 
+                        onClick={() => toggleSearchActive(config.id, config.is_active)}
+                        className={`status-btn ${config.is_active ? 'active' : 'inactive'}`}
+                      >
+                        {config.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                    </td>
+                    <td>
+                      <button 
+                        onClick={() => deleteSearchConfig(config.id)}
+                        className="delete-btn"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       <style jsx>{`
         .container {
@@ -735,6 +798,23 @@ export default function PriceTracker() {
           margin: 0 auto;
           padding: 2rem;
           color: #e0e0e0;
+        }
+        .guest-view .admin-only {
+          display: none;
+        }
+        .guest-view .delete-btn,
+        .guest-view .add-btn,
+        .guest-view .create-btn,
+        .guest-view .status-btn,
+        .guest-view input[type="checkbox"],
+        .guest-view input[type="text"] {
+          display: none;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 2rem;
         }
         h1, h2, h3 {
           color: #ffffff;
@@ -945,6 +1025,14 @@ export default function PriceTracker() {
           padding: 2rem;
           font-size: 1.2rem;
           color: #e0e0e0;
+        }
+        .logout-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
         }
       `}</style>
     </div>
