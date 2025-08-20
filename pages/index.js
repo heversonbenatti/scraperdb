@@ -1209,8 +1209,8 @@ export default function Home() {
                     key={interval.value}
                     onClick={() => handleIntervalChange(interval.value)}
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${chartInterval === interval.value
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
                       }`}
                     title={interval.desc}
                   >
@@ -1246,7 +1246,7 @@ export default function Home() {
           </div>
         </div>
       )}
-      
+
       {/* Build Product Selection Modal */}
       {buildProductModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
