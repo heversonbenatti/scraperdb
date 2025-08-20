@@ -537,7 +537,7 @@ export default function Home() {
                         <div key={category} className="bg-gray-700 rounded p-3 flex items-center justify-between">
                           <div className="flex-1">
                             <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
-                            <p className="text-sm font-medium truncate">{product.name}</p>
+                            <p className="text-sm font-medium truncate max-w-[200px]">{product.name}</p>
                           </div>
                           <div className="flex items-center space-x-2">
                             <span className="font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</span>
@@ -624,7 +624,7 @@ export default function Home() {
                     </span>
                     <span className="text-xs text-gray-400">{product.website}</span>
                   </div>
-                  <h4 className="text-sm font-medium mb-3 line-clamp-2">{product.name}</h4>
+                  <h4 className="text-sm font-medium mb-3 line-clamp-2 max-w-[220px] truncate">{product.name}</h4>
                   <div className="flex justify-between items-end">
                     <div>
                       <p className="text-xl font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</p>
@@ -924,7 +924,7 @@ export default function Home() {
             </div>
             <div className="mb-4">
               <p className="text-sm text-gray-400">Produto atual:</p>
-              <p className="font-medium">{buildProductModal.currentProduct.name}</p>
+              <p className="font-medium truncate max-w-[250px]">{buildProductModal.currentProduct.name}</p>
               <p className="text-purple-400">R$ {buildProductModal.currentProduct.currentPrice.toFixed(2)}</p>
             </div>
             <div className="border-t border-gray-700 pt-4">
@@ -940,7 +940,7 @@ export default function Home() {
                         }`}
                       onClick={() => updateBuildProduct(buildProductModal.buildId, buildProductModal.category, product.id)}
                     >
-                      <p className="font-medium text-sm mb-1">{product.name}</p>
+                      <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{product.name}</p>
                       <div className="flex justify-between items-center">
                         <span className="text-purple-400 font-bold">R$ {product.currentPrice.toFixed(2)}</span>
                         <span className="text-xs text-gray-400">{product.website}</span>
