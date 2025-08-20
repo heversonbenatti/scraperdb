@@ -1122,6 +1122,275 @@ export default function PriceTracker() {
         .text-transparent {
           color: transparent;
         }
+
+        .container {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 2rem;
+          color: #e0e0e0;
+        }
+        .guest-view .admin-only {
+          display: none;
+        }
+        .guest-view .delete-btn,
+        .guest-view .add-btn,
+        .guest-view .create-btn,
+        .guest-view .status-btn,
+        .guest-view input[type="checkbox"],
+        .guest-view input[type="text"] {
+          display: none;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 2rem;
+        }
+        h1, h2, h3 {
+          color: #ffffff;
+        }
+        .builds-section {
+          margin-bottom: 3rem;
+        }
+        .builds-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        .add-build-btn {
+          background-color: #1971c2;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .build-form {
+          background-color: #1e1e1e;
+          padding: 1.5rem;
+          border-radius: 8px;
+          margin-bottom: 2rem;
+          border: 1px solid #333;
+        }
+        .form-group {
+          margin-bottom: 1rem;
+        }
+        .form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: bold;
+          color: #e0e0e0;
+        }
+        .form-group input {
+          width: 100%;
+          padding: 0.5rem;
+          background-color: #333;
+          color: #e0e0e0;
+          border: 1px solid #444;
+          border-radius: 4px;
+        }
+        .keyword-group-input {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 0.5rem;
+          align-items: center;
+        }
+        .keyword-group-input input {
+          flex: 1;
+        }
+        .remove-group-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .add-group-btn {
+          background-color: #1971c2;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 0.5rem;
+        }
+        .category-checkboxes {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 0.5rem;
+          margin-top: 0.5rem;
+        }
+        .category-checkboxes label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+        .create-btn {
+          background-color: #2b8a3e;
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .builds-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 1.5rem;
+        }
+        .build-card {
+          border: 1px solid #333;
+          border-radius: 8px;
+          padding: 1.5rem;
+          background-color: #1e1e1e;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .build-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        .build-name {
+          margin: 0;
+          cursor: pointer;
+          color: #4dabf7;
+        }
+        .build-name:hover {
+          text-decoration: underline;
+        }
+        .build-categories {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-bottom: 1rem;
+        }
+        .category-tag {
+          background-color: #333;
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.8rem;
+        }
+        .build-total {
+          font-weight: bold;
+          color: #ffffff;
+          margin-top: 1rem;
+        }
+        .delete-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .search-management {
+          margin-top: 3rem;
+          padding: 2rem;
+          background-color: #1e1e1e;
+          border-radius: 8px;
+          border: 1px solid #333;
+        }
+        .add-search-form {
+          margin-bottom: 2rem;
+          padding: 1.5rem;
+          background-color: #252525;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          color: #e0e0e0;
+          border: 1px solid #333;
+        }
+        .website-checkboxes {
+          display: flex;
+          gap: 1rem;
+          margin-top: 0.5rem;
+        }
+        .website-checkboxes label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+        }
+        .helper-text {
+          font-size: 0.8rem;
+          color: #a5a5a5;
+          margin-top: 0.25rem;
+        }
+        .add-btn {
+          background-color: #2b8a3e;
+          color: white;
+          padding: 0.75rem 1.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-top: 1rem;
+        }
+        .search-configs-list {
+          background-color: #252525;
+          padding: 1.5rem;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          border: 1px solid #333;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          color: #e0e0e0;
+        }
+        th, td {
+          padding: 0.75rem;
+          text-align: left;
+          border-bottom: 1px solid #333;
+        }
+        th {
+          background-color: #333;
+        }
+        .keyword-groups-display {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .keyword-group-display {
+          background-color: #333;
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.85rem;
+          display: inline-block;
+          margin-right: 0.25rem;
+        }
+        .status-btn {
+          padding: 0.25rem 0.5rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .status-btn.active {
+          background-color: #2b8a3e;
+          color: white;
+        }
+        .status-btn.inactive {
+          background-color: #c92a2a;
+          color: white;
+        }
+        .loading {
+          text-align: center;
+          padding: 2rem;
+          font-size: 1.2rem;
+          color: #e0e0e0;
+        }
+        .logout-btn {
+          background-color: #c92a2a;
+          color: white;
+          padding: 0.5rem 1rem;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
       `}</style>
     </div>
   );
