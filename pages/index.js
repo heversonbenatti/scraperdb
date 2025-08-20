@@ -258,14 +258,22 @@ export default function Home() {
   };
 
   const toggleBuildAutoRefresh = async (buildId, value) => {
+    const updateData = value
+      ? { auto_refresh: true, product_overrides: {} }
+      : { auto_refresh: false };
+
     await supabaseClient
       .from('builds')
-      .update({ auto_refresh: value })
+      .update(updateData)
       .eq('id', buildId);
 
-    setBuilds(prev => prev.map(b =>
-      b.id === buildId ? { ...b, auto_refresh: value } : b
-    ));
+    setBuilds(prev =>
+      prev.map(b =>
+        b.id === buildId
+          ? { ...b, ...updateData }
+          : b
+      )
+    );
   };
 
   const createBuild = async () => {
