@@ -1,25 +1,25 @@
-// index2.js - Versão completa melhorada
+// index.js
 import { supabase } from '../lib/supabaseClient';
 import { useEffect, useState } from 'react';
 import Login from '../components/login';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
 export default function PriceTracker() {
-  const [userRole, setUserRole] = useState(null); // 'admin', 'guest', or null
+  const [userRole, setUserRole] = useState(null);
   const [builds, setBuilds] = useState([]);
   const [products, setProducts] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [selectedBuild, setSelectedBuild] = useState(null);
-  const [priceHistory, setPriceHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchConfigs, setSearchConfigs] = useState([]);
   const [activeTab, setActiveTab] = useState('builds');
-  const [sortBy, setSortBy] = useState('name');
-  const [sortOrder, setSortOrder] = useState('asc');
-  const [filterCategory, setFilterCategory] = useState('all');
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [sortBy, setSortBy] = useState('price'); // 'price' or 'category'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Form states
+  const [showBuildForm, setShowBuildForm] = useState(false);
+  const [newBuild, setNewBuild] = useState({
+    name: '',
+    categories: []
+  });
   const [newSearch, setNewSearch] = useState({
     search_text: '',
     keywordGroups: [''],
@@ -30,22 +30,6 @@ export default function PriceTracker() {
       terabyte: false
     },
     is_active: true
-  });
-  const [newBuild, setNewBuild] = useState({
-    name: '',
-    categories: []
-  });
-  const [showBuildForm, setShowBuildForm] = useState(false);
-  const [showSearchForm, setShowSearchForm] = useState(false);
-
-  // Dashboard states
-  const [dashboardStats, setDashboardStats] = useState({
-    totalProducts: 0,
-    totalBuilds: 0,
-    activeSearches: 0,
-    avgPrice: 0,
-    priceRanges: [],
-    categoryDistribution: []
   });
 
   // Check if user is already logged in
@@ -60,7 +44,7 @@ export default function PriceTracker() {
 
     const fetchInitialData = async () => {
       try {
-        // Fetch builds first
+        // Fetch builds
         const { data: buildsData, error: buildsError } = await supabase
           .from('builds')
           .select('*')
@@ -69,7 +53,7 @@ export default function PriceTracker() {
         if (buildsError) throw buildsError;
         setBuilds(buildsData || []);
 
-        // Fetch products and prices
+        // Fetch all products with latest prices
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select(`
@@ -82,41 +66,39 @@ export default function PriceTracker() {
 
         if (productsError) throw productsError;
 
-        const pricesPromises = productsData.map(async (product) => {
-          const { data: priceData, error: priceError } = await supabase
-            .from('prices')
-            .select('price, collected_at')
-            .eq('product_id', product.id)
-            .order('collected_at', { ascending: false })
-            .limit(1)
-            .single()
+        // Get latest price for each product
+        const productsWithPrices = await Promise.all(
+          productsData.map(async (product) => {
+            const { data: priceData } = await supabase
+              .from('prices')
+              .select('price, collected_at')
+              .eq('product_id', product.id)
+              .order('collected_at', { ascending: false })
+              .limit(1)
+              .single();
 
-          return {
-            ...product,
-            price: priceData?.price || 0,
-            lastUpdated: priceData?.collected_at
-          }
-        });
+            return {
+              ...product,
+              currentPrice: priceData?.price || 0,
+              lastUpdated: priceData?.collected_at
+            };
+          })
+        );
 
-        const productsWithPrices = (await Promise.all(pricesPromises))
-          .filter(product => product.price > 0);
+        setProducts(productsWithPrices.filter(p => p.currentPrice > 0));
         
-        setProducts(productsWithPrices);
-        calculateDashboardStats(productsWithPrices, buildsData);
-        
-        // Fetch search configurations with keyword groups
+        // Fetch search configurations
         await fetchSearchConfigs();
         
-        setLoading(false)
+        setLoading(false);
       } catch (error) {
-        console.error('Error fetching data:', error)
-        setLoading(false)
+        console.error('Error fetching data:', error);
+        setLoading(false);
       }
-    }
+    };
 
     const fetchSearchConfigs = async () => {
       try {
-        // First get search configs
         const { data: configsData, error: configsError } = await supabase
           .from('search_configs')
           .select('*')
@@ -124,10 +106,9 @@ export default function PriceTracker() {
         
         if (configsError) throw configsError;
         
-        // Then get keyword groups for each config
         const configsWithKeywords = await Promise.all(
           configsData.map(async (config) => {
-            const { data: keywordData, error: keywordError } = await supabase
+            const { data: keywordData } = await supabase
               .from('keyword_groups')
               .select('keywords')
               .eq('search_config_id', config.id)
@@ -147,308 +128,189 @@ export default function PriceTracker() {
     };
 
     checkSession();
-    
+
     // Set up realtime subscriptions
-    const productsSubscription = supabase
+    const pricesSubscription = supabase
       .channel('price-changes')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'prices'
-      }, payload => {
-        const updatedProduct = {
-          id: payload.new.product_id,
-          price: payload.new.price,
-          lastUpdated: payload.new.collected_at
-        }
-        setProducts(prev => {
-          const updated = prev.map(item => 
-            item.id === updatedProduct.id ? 
-            { ...item, price: updatedProduct.price, lastUpdated: updatedProduct.lastUpdated } : 
-            item
-          )
-          return updated
-        })
-      })
-      .subscribe()
-
-    const configsSubscription = supabase
-      .channel('config-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'search_configs'
       }, async payload => {
-        // Refetch all search configs when there's a change
-        await fetchSearchConfigs();
+        // Update product prices when new price is inserted
+        setProducts(prev => prev.map(product => 
+          product.id === payload.new.product_id 
+            ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.collected_at }
+            : product
+        ));
       })
-      .subscribe()
-
-    const keywordGroupsSubscription = supabase
-      .channel('keyword-groups-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'keyword_groups'
-      }, async payload => {
-        // Refetch all search configs when keyword groups change
-        await fetchSearchConfigs();
-      })
-      .subscribe()
-
-    const buildsSubscription = supabase
-      .channel('build-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'builds'
-      }, payload => {
-        if (payload.eventType === 'INSERT') {
-          setBuilds(prev => [payload.new, ...prev])
-        } else if (payload.eventType === 'UPDATE') {
-          setBuilds(prev => prev.map(build => 
-            build.id === payload.new.id ? payload.new : build
-          ))
-        } else if (payload.eventType === 'DELETE') {
-          setBuilds(prev => prev.filter(build => build.id !== payload.old.id))
-        }
-      })
-      .subscribe()
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(productsSubscription)
-      supabase.removeChannel(configsSubscription)
-      supabase.removeChannel(keywordGroupsSubscription)
-      supabase.removeChannel(buildsSubscription)
-    }
-  }, [])
+      supabase.removeChannel(pricesSubscription);
+    };
+  }, []);
 
-  // Calculate dashboard statistics
-  const calculateDashboardStats = (productsData, buildsData) => {
-    const totalProducts = productsData.length;
-    const totalBuilds = buildsData?.length || 0;
-    const activeSearches = searchConfigs.filter(c => c.is_active).length;
-    
-    const prices = productsData.map(p => p.price).filter(p => p > 0);
-    const avgPrice = prices.length ? prices.reduce((sum, price) => sum + price, 0) / prices.length : 0;
-
-    // Price ranges
-    const priceRanges = [
-      { range: '0-500', count: prices.filter(p => p <= 500).length },
-      { range: '500-1000', count: prices.filter(p => p > 500 && p <= 1000).length },
-      { range: '1000-2000', count: prices.filter(p => p > 1000 && p <= 2000).length },
-      { range: '2000+', count: prices.filter(p => p > 2000).length }
-    ];
-
-    // Category distribution
-    const categoryCount = {};
-    productsData.forEach(product => {
-      categoryCount[product.category] = (categoryCount[product.category] || 0) + 1;
-    });
-    
-    const categoryDistribution = Object.entries(categoryCount).map(([category, count]) => ({
-      category: category.replace('_', ' ').toUpperCase(),
-      count
-    }));
-
-    setDashboardStats({
-      totalProducts,
-      totalBuilds,
-      activeSearches,
-      avgPrice,
-      priceRanges,
-      categoryDistribution
-    });
-  };
-
-  // Fetch price history for product
+  // Fetch price history for a product
   const fetchPriceHistory = async (productId) => {
     try {
       const { data, error } = await supabase
         .from('prices')
         .select('price, collected_at')
         .eq('product_id', productId)
-        .order('collected_at', { ascending: true });
+        .order('collected_at', { ascending: true })
+        .limit(30); // Last 30 price points
 
       if (error) throw error;
-
-      const formattedData = data?.map(item => ({
-        date: new Date(item.collected_at).toLocaleDateString('pt-BR'),
-        price: parseFloat(item.price),
-        timestamp: item.collected_at
-      })) || [];
-
-      setPriceHistory(formattedData);
+      setPriceHistory(data || []);
     } catch (error) {
       console.error('Error fetching price history:', error);
       setPriceHistory([]);
     }
   };
 
-  const handleProductClick = async (product) => {
+  // Show price modal
+  const showPriceModal = async (product) => {
     setSelectedProduct(product);
     await fetchPriceHistory(product.id);
   };
 
-  // Calculate total price for a build
-  const calculateBuildTotal = (buildCategories) => {
-    if (!buildCategories || !products.length) return 0
-    
-    return buildCategories.reduce((total, category) => {
-      const categoryProducts = products.filter(item => item.category === category);
-      const lowestPrice = Math.min(...categoryProducts.map(p => p.price), 0);
-      return total + (lowestPrice > 0 ? lowestPrice : 0);
-    }, 0)
-  }
-
-  // Get lowest priced products for build
-  const getBuildProducts = (buildCategories) => {
-    return buildCategories.map(category => {
-      const categoryProducts = products.filter(item => item.category === category);
-      return categoryProducts.reduce((lowest, current) => {
-        return (!lowest || current.price < lowest.price) ? current : lowest;
-      }, null);
-    }).filter(Boolean);
+  // Close price modal
+  const closePriceModal = () => {
+    setSelectedProduct(null);
+    setPriceHistory([]);
   };
 
-  // Get filtered and sorted products
-  const getFilteredAndSortedProducts = () => {
-    let filtered = products;
+  // Sort products
+  const getSortedProducts = () => {
+    let sorted = [...products];
     
-    if (filterCategory !== 'all') {
-      filtered = products.filter(p => p.category === filterCategory);
-    }
-
+    // Filter by search term
     if (searchTerm) {
-      filtered = filtered.filter(p => 
+      sorted = sorted.filter(p => 
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.category.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
-    return filtered.sort((a, b) => {
-      let aVal = a[sortBy];
-      let bVal = b[sortBy];
-      
+    // Sort
+    sorted.sort((a, b) => {
+      let comparison = 0;
       if (sortBy === 'price') {
-        aVal = parseFloat(aVal);
-        bVal = parseFloat(bVal);
+        comparison = a.currentPrice - b.currentPrice;
+      } else if (sortBy === 'category') {
+        comparison = a.category.localeCompare(b.category);
       }
-      
-      if (sortOrder === 'asc') {
-        return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      } else {
-        return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
-      }
+      return sortOrder === 'asc' ? comparison : -comparison;
     });
+
+    return sorted;
   };
 
-  // Build management functions
+  // Calculate build total
+  const calculateBuildTotal = (buildCategories) => {
+    if (!buildCategories || !products.length) return 0;
+    
+    return buildCategories.reduce((total, category) => {
+      const lowestInCategory = products
+        .filter(p => p.category === category)
+        .sort((a, b) => a.currentPrice - b.currentPrice)[0];
+      return total + (lowestInCategory?.currentPrice || 0);
+    }, 0);
+  };
+
+  // Get lowest price product for each category in build
+  const getBuildProducts = (buildCategories) => {
+    if (!buildCategories) return [];
+    
+    return buildCategories.map(category => {
+      const categoryProducts = products.filter(p => p.category === category);
+      return categoryProducts.sort((a, b) => a.currentPrice - b.currentPrice)[0];
+    }).filter(Boolean);
+  };
+
+  // Build management
   const createBuild = async () => {
     if (!newBuild.name || newBuild.categories.length === 0) {
-      alert('Build name and at least one category are required')
-      return
+      alert('Nome e pelo menos uma categoria são obrigatórios');
+      return;
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('builds')
       .insert([{
         name: newBuild.name,
         categories: newBuild.categories
-      }])
-      .select()
+      }]);
 
     if (!error) {
-      setNewBuild({
-        name: '',
-        categories: []
-      })
-      setShowBuildForm(false)
-    } else {
-      console.error('Error creating build:', error)
+      setNewBuild({ name: '', categories: [] });
+      setShowBuildForm(false);
+      window.location.reload(); // Refresh to get new data
     }
-  }
-
-  const toggleCategoryInBuild = (category) => {
-    setNewBuild(prev => {
-      if (prev.categories.includes(category)) {
-        return {
-          ...prev,
-          categories: prev.categories.filter(c => c !== category)
-        }
-      } else {
-        return {
-          ...prev,
-          categories: [...prev.categories, category]
-        }
-      }
-    })
-  }
+  };
 
   const deleteBuild = async (id) => {
-    const { error } = await supabase
-      .from('builds')
-      .delete()
-      .eq('id', id)
+    if (confirm('Tem certeza que deseja remover esta build?')) {
+      const { error } = await supabase
+        .from('builds')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.error('Error deleting build:', error)
+      if (!error) {
+        setBuilds(prev => prev.filter(b => b.id !== id));
+      }
     }
-  }
+  };
 
-  // Keyword group management
+  // Search config management
   const addKeywordGroup = () => {
     setNewSearch(prev => ({
       ...prev,
       keywordGroups: [...prev.keywordGroups, '']
-    }))
-  }
+    }));
+  };
 
   const removeKeywordGroup = (index) => {
     setNewSearch(prev => ({
       ...prev,
       keywordGroups: prev.keywordGroups.filter((_, i) => i !== index)
-    }))
-  }
+    }));
+  };
 
   const updateKeywordGroup = (index, value) => {
     setNewSearch(prev => ({
       ...prev,
       keywordGroups: prev.keywordGroups.map((group, i) => i === index ? value : group)
-    }))
-  }
+    }));
+  };
 
-  // Search configuration functions
   const addSearchConfig = async () => {
     if (!newSearch.search_text || !newSearch.category) {
-      alert('Search term and category are required')
-      return
+      alert('Termo de busca e categoria são obrigatórios');
+      return;
     }
 
-    // Filter out empty keyword groups and validate
     const validKeywordGroups = newSearch.keywordGroups
       .map(group => group.trim())
-      .filter(group => group.length > 0)
+      .filter(group => group.length > 0);
 
     if (validKeywordGroups.length === 0) {
-      alert('Add at least one keyword group')
-      return
+      alert('Adicione pelo menos um grupo de palavras-chave');
+      return;
     }
 
-    // Get selected websites
     const selectedWebsites = Object.entries(newSearch.websites)
       .filter(([_, isChecked]) => isChecked)
-      .map(([website]) => website)
+      .map(([website]) => website);
 
     if (selectedWebsites.length === 0) {
-      alert('Select at least one website')
-      return
+      alert('Selecione pelo menos um site');
+      return;
     }
 
     try {
-      // Create search configs for each selected website
       for (const website of selectedWebsites) {
-        // First insert the search config
         const { data: configData, error: configError } = await supabase
           .from('search_configs')
           .insert([{
@@ -457,684 +319,242 @@ export default function PriceTracker() {
             website: website,
             is_active: newSearch.is_active
           }])
-          .select()
+          .select();
 
-        if (configError) throw configError
+        if (configError) throw configError;
 
-        const searchConfigId = configData[0].id
+        const searchConfigId = configData[0].id;
 
-        // Then insert keyword groups
         const keywordGroupsData = validKeywordGroups.map(group => ({
           search_config_id: searchConfigId,
           keywords: group
-        }))
+        }));
 
         const { error: keywordError } = await supabase
           .from('keyword_groups')
-          .insert(keywordGroupsData)
+          .insert(keywordGroupsData);
 
-        if (keywordError) throw keywordError
+        if (keywordError) throw keywordError;
       }
 
-      // Reset form
       setNewSearch({
         search_text: '',
         keywordGroups: [''],
         category: '',
-        websites: {
-          kabum: false,
-          pichau: false,
-          terabyte: false
-        },
+        websites: { kabum: false, pichau: false, terabyte: false },
         is_active: true
-      })
+      });
 
-      setShowSearchForm(false);
-      alert('Search configurations added successfully!')
-
+      alert('Configurações adicionadas com sucesso!');
+      window.location.reload();
     } catch (error) {
-      console.error('Error adding search config:', error)
-      alert('Error adding search configuration: ' + error.message)
+      console.error('Error adding search config:', error);
+      alert('Erro ao adicionar configuração');
     }
-  }
+  };
 
   const toggleSearchActive = async (id, currentStatus) => {
-    const newStatus = !currentStatus;
-    
-    // Optimistically update the UI
-    setSearchConfigs(prevConfigs =>
-      prevConfigs.map(config =>
-        config.id === id ? { ...config, is_active: newStatus } : config
-      )
-    );
+    const { error } = await supabase
+      .from('search_configs')
+      .update({ is_active: !currentStatus })
+      .eq('id', id);
 
-    try {
-      const { error } = await supabase
-        .from('search_configs')
-        .update({ is_active: newStatus })
-        .eq('id', id);
-
-      if (error) {
-        // Revert if the update fails
-        setSearchConfigs(prevConfigs =>
-          prevConfigs.map(config =>
-            config.id === id ? { ...config, is_active: currentStatus } : config
-          )
-        );
-        console.error('Error toggling search active status:', error);
-      }
-    } catch (err) {
-      // Revert if there's an error
-      setSearchConfigs(prevConfigs =>
-        prevConfigs.map(config =>
-          config.id === id ? { ...config, is_active: currentStatus } : config
-        )
-      );
-      console.error('Error toggling search active status:', err);
+    if (!error) {
+      setSearchConfigs(prev => prev.map(config =>
+        config.id === id ? { ...config, is_active: !currentStatus } : config
+      ));
     }
   };
 
   const deleteSearchConfig = async (id) => {
-    try {
-      // Delete keyword groups first (they should cascade delete, but being explicit)
-      await supabase
-        .from('keyword_groups')
-        .delete()
-        .eq('search_config_id', id)
-
-      // Then delete the search config
+    if (confirm('Tem certeza que deseja remover esta configuração?')) {
       const { error } = await supabase
         .from('search_configs')
         .delete()
-        .eq('id', id)
+        .eq('id', id);
 
-      if (error) throw error
-    } catch (error) {
-      console.error('Error deleting search config:', error)
-      alert('Error deleting search configuration: ' + error.message)
+      if (!error) {
+        setSearchConfigs(prev => prev.filter(c => c.id !== id));
+      }
     }
-  }
-
-  // Get unique categories
-  const categories = [...new Set(products.map(p => p.category))];
-
-  // Chart colors
-  const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#F97316', '#06B6D4', '#84CC16'];
+  };
 
   if (!userRole) {
-    return (
-      <Login 
-        onLogin={(role) => setUserRole(role)} 
-        onGuest={(role) => setUserRole(role)} 
-      />
-    );
+    return <Login onLogin={(role) => setUserRole(role)} onGuest={(role) => setUserRole(role)} />;
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-6"></div>
-          <h2 className="text-2xl font-semibold text-white mb-2">Carregando dados...</h2>
-          <p className="text-gray-400">Aguarde enquanto sincronizamos os preços</p>
-        </div>
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Carregando dados...</p>
+        <style jsx>{`
+          .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 1.2rem;
+          }
+          .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
       </div>
     );
   }
 
-  // Build detail view
-  if (selectedBuild) {
-    const buildProducts = getBuildProducts(selectedBuild.categories);
-    const total = calculateBuildTotal(selectedBuild.categories);
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-6">
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <button
-              onClick={() => setSelectedBuild(null)}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 backdrop-blur-sm rounded-xl transition-all group"
-            >
-              <span className="group-hover:-translate-x-1 transition-transform">←</span>
-              <span className="text-gray-300">Voltar para Builds</span>
-            </button>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              {selectedBuild.name}
-            </h1>
-            <button
-              onClick={() => {
-                supabase.auth.signOut();
-                setUserRole(null);
-              }}
-              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
-            >
-              Sair
-            </button>
-          </div>
-
-          {/* Build Summary */}
-          <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 mb-8 border border-gray-700/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-semibold text-white mb-2">Resumo da Build</h2>
-                <p className="text-gray-400">Componentes selecionados com os melhores preços</p>
-              </div>
-              <div className="text-right">
-                <p className="text-gray-400 text-sm mb-1">Total Estimado</p>
-                <p className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-                  R$ {total.toFixed(2)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Components Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {buildProducts.map((product, index) => (
-              <div
-                key={product.id}
-                className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all group cursor-pointer"
-                onClick={() => handleProductClick(product)}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
-                    <span className="text-blue-300 text-sm font-medium">
-                      {product.category.replace('_', ' ').toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="px-3 py-1 bg-gray-700/50 rounded-full">
-                    <span className="text-gray-300 text-sm">{product.website}</span>
-                  </div>
-                </div>
-                
-                <h3 className="text-white font-semibold mb-4 group-hover:text-blue-400 transition-colors line-clamp-2">
-                  {product.name}
-                </h3>
-                
-                <div className="flex items-center justify-between">
-                  <div className="text-2xl font-bold text-green-400">
-                    R$ {product.price.toFixed(2)}
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-gray-400 group-hover:text-blue-400 transition-colors">📊</span>
-                    <span className="text-gray-400 text-sm">Ver gráfico</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Price history view
-  if (selectedProduct) {
-    const currentPrice = priceHistory[priceHistory.length - 1]?.price || selectedProduct.price;
-    const previousPrice = priceHistory[priceHistory.length - 2]?.price || currentPrice;
-    const priceChange = currentPrice - previousPrice;
-    const priceChangePercent = previousPrice ? ((priceChange / previousPrice) * 100).toFixed(2) : 0;
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-6">
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <button
-              onClick={() => setSelectedProduct(null)}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 backdrop-blur-sm rounded-xl transition-all group"
-            >
-              <span className="group-hover:-translate-x-1 transition-transform">←</span>
-              <span className="text-gray-300">Voltar</span>
-            </button>
-            <h1 className="text-2xl font-bold text-white">Histórico de Preços</h1>
-            <button
-              onClick={() => {
-                supabase.auth.signOut();
-                setUserRole(null);
-              }}
-              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
-            >
-              Sair
-            </button>
-          </div>
-
-          {/* Product Info */}
-          <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 mb-8 border border-gray-700/50">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h2 className="text-2xl font-semibold text-white mb-4">{selectedProduct.name}</h2>
-                <div className="flex items-center space-x-4">
-                  <span className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-full text-blue-300 font-medium">
-                    {selectedProduct.category.replace('_', ' ').toUpperCase()}
-                  </span>
-                  <span className="px-4 py-2 bg-gray-700/50 rounded-full text-gray-300">
-                    {selectedProduct.website}
-                  </span>
-                  <a 
-                    href={selectedProduct.product_link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-full text-green-300 transition-all"
-                  >
-                    Ver Produto
-                  </a>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-4xl font-bold text-white mb-2">
-                  R$ {currentPrice.toFixed(2)}
-                </div>
-                <div className={`flex items-center justify-end space-x-2 ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                  <span className="text-lg">
-                    {priceChange >= 0 ? '↗' : '↘'}
-                  </span>
-                  <span className="font-semibold">
-                    {priceChange >= 0 ? '+' : ''}R$ {priceChange.toFixed(2)} ({priceChangePercent}%)
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Price Chart */}
-          <div className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
-            <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
-              <span>📈</span>
-              <span>Variação de Preço</span>
-            </h3>
-            <div className="h-96">
-              {priceHistory.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={priceHistory}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#9CA3AF"
-                      fontSize={12}
-                    />
-                    <YAxis 
-                      stroke="#9CA3AF"
-                      fontSize={12}
-                      tickFormatter={(value) => `R$ ${value.toFixed(0)}`}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'rgba(31, 41, 55, 0.95)',
-                        border: '1px solid #374151',
-                        borderRadius: '12px',
-                        color: '#F3F4F6',
-                        backdropFilter: 'blur(8px)'
-                      }}
-                      formatter={(value) => [`R$ ${value.toFixed(2)}`, 'Preço']}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="price"
-                      stroke="#3B82F6"
-                      strokeWidth={3}
-                      dot={{ fill: '#3B82F6', r: 4 }}
-                      activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2, fill: '#1E40AF' }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-gray-400">Sem dados de histórico disponíveis</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Main application view
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+    <div className="app-container">
       {/* Header */}
-      <header className="border-b border-gray-700/50 bg-gray-900/30 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-                <span className="text-white font-bold text-lg">PC</span>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  PC Price Tracker
-                </h1>
-                <p className="text-gray-400 text-sm">Monitor inteligente de preços</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-6">
-              {/* Navigation Tabs */}
-              <nav className="flex bg-gray-800/50 backdrop-blur-sm rounded-xl p-1 border border-gray-700/50">
-                <button
-                  onClick={() => setActiveTab('dashboard')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === 'dashboard' 
-                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
-                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
-                  }`}
-                >
-                  📊 Dashboard
-                </button>
-                <button
-                  onClick={() => setActiveTab('builds')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === 'builds' 
-                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
-                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
-                  }`}
-                >
-                  🖥️ Builds
-                </button>
-                <button
-                  onClick={() => setActiveTab('products')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === 'products' 
-                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
-                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
-                  }`}
-                >
-                  📦 Produtos
-                </button>
-                {userRole === 'admin' && (
-                  <button
-                    onClick={() => setActiveTab('admin')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      activeTab === 'admin' 
-                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
-                        : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
-                    }`}
-                  >
-                    ⚙️ Admin
-                  </button>
-                )}
-              </nav>
-              
-              <button
-                onClick={() => {
-                  supabase.auth.signOut();
-                  setUserRole(null);
-                }}
-                className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
+      <header className="header">
+        <div className="header-content">
+          <h1 className="logo">
+            <span className="logo-icon">🖥️</span>
+            PC Scraper
+          </h1>
+          <nav className="nav-tabs">
+            <button 
+              className={`nav-tab ${activeTab === 'builds' ? 'active' : ''}`}
+              onClick={() => setActiveTab('builds')}
+            >
+              <span className="tab-icon">🔧</span>
+              Builds
+            </button>
+            <button 
+              className={`nav-tab ${activeTab === 'products' ? 'active' : ''}`}
+              onClick={() => setActiveTab('products')}
+            >
+              <span className="tab-icon">📦</span>
+              Produtos
+            </button>
+            {userRole === 'admin' && (
+              <button 
+                className={`nav-tab ${activeTab === 'admin' ? 'active' : ''}`}
+                onClick={() => setActiveTab('admin')}
               >
-                Sair
+                <span className="tab-icon">⚙️</span>
+                Admin
               </button>
-            </div>
-          </div>
+            )}
+          </nav>
+          <button 
+            onClick={() => {
+              supabase.auth.signOut();
+              setUserRole(null);
+            }}
+            className="logout-btn"
+          >
+            Sair
+          </button>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Dashboard Tab */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-8">
-            <div className="text-center mb-8">
-              <h2 className="text-4xl font-bold text-white mb-4">Dashboard Analytics</h2>
-              <p className="text-gray-400 text-lg">Visão geral dos dados de preços e produtos</p>
-            </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-300 text-sm font-medium">Total de Produtos</p>
-                    <p className="text-3xl font-bold text-white">{dashboardStats.totalProducts}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">📦</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur-sm rounded-2xl p-6 border border-green-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-green-300 text-sm font-medium">Builds Configuradas</p>
-                    <p className="text-3xl font-bold text-white">{dashboardStats.totalBuilds}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-green-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">🖥️</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-purple-300 text-sm font-medium">Buscas Ativas</p>
-                    <p className="text-3xl font-bold text-white">{dashboardStats.activeSearches}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-purple-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">👁️</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur-sm rounded-2xl p-6 border border-yellow-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-yellow-300 text-sm font-medium">Preço Médio</p>
-                    <p className="text-3xl font-bold text-white">R$ {dashboardStats.avgPrice.toFixed(0)}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-yellow-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">💰</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Price Distribution */}
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
-                <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
-                  <span>📊</span>
-                  <span>Distribuição por Faixa de Preço</span>
-                </h3>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dashboardStats.priceRanges}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis dataKey="range" stroke="#9CA3AF" />
-                      <YAxis stroke="#9CA3AF" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'rgba(31, 41, 55, 0.95)',
-                          border: '1px solid #374151',
-                          borderRadius: '12px',
-                          color: '#F3F4F6'
-                        }}
-                      />
-                      <Bar dataKey="count" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Category Distribution */}
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
-                <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
-                  <span>🍰</span>
-                  <span>Produtos por Categoria</span>
-                </h3>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={dashboardStats.categoryDistribution}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="count"
-                        label={({ category, count }) => `${category}: ${count}`}
-                      >
-                        {dashboardStats.categoryDistribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'rgba(31, 41, 55, 0.95)',
-                          border: '1px solid #374151',
-                          borderRadius: '12px',
-                          color: '#F3F4F6'
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
+      {/* Main Content */}
+      <main className="main-content">
         {/* Builds Tab */}
         {activeTab === 'builds' && (
-          <div className="space-y-8">
-            {/* Builds Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-4xl font-bold text-white mb-2">Builds Configuradas</h2>
-                <p className="text-gray-400 text-lg">Configurações completas de PC com preços atualizados</p>
-              </div>
+          <div className="tab-content">
+            <div className="section-header">
+              <h2>Minhas Builds</h2>
               {userRole === 'admin' && (
-                <button
+                <button 
                   onClick={() => setShowBuildForm(!showBuildForm)}
-                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
+                  className="add-btn"
                 >
-                  <span className="text-xl">+</span>
-                  <span>Nova Build</span>
+                  {showBuildForm ? 'Cancelar' : '+ Nova Build'}
                 </button>
               )}
             </div>
 
-            {/* Build Form */}
             {showBuildForm && userRole === 'admin' && (
-              <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
-                <h3 className="text-2xl font-semibold text-white mb-6 flex items-center space-x-2">
-                  <span>🛠️</span>
-                  <span>Criar Nova Build</span>
-                </h3>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-2">
-                      Nome da Build
+              <div className="form-card">
+                <h3>Criar Nova Build</h3>
+                <input 
+                  type="text" 
+                  placeholder="Nome da Build"
+                  value={newBuild.name}
+                  onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
+                  className="input"
+                />
+                <div className="categories-grid">
+                  {[...new Set(products.map(p => p.category))].map(category => (
+                    <label key={category} className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={newBuild.categories.includes(category)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewBuild({...newBuild, categories: [...newBuild.categories, category]});
+                          } else {
+                            setNewBuild({...newBuild, categories: newBuild.categories.filter(c => c !== category)});
+                          }
+                        }}
+                      />
+                      <span>{category.replace('_', ' ').toUpperCase()}</span>
                     </label>
-                    <input
-                      type="text"
-                      value={newBuild.name}
-                      onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
-                      className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                      placeholder="Ex: Gaming PC 2024"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-3">
-                      Selecionar Categorias
-                    </label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                      {categories.map(category => (
-                        <label key={category} className="flex items-center space-x-3 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={newBuild.categories.includes(category)}
-                            onChange={() => toggleCategoryInBuild(category)}
-                            className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
-                          />
-                          <span className="text-gray-300 group-hover:text-white transition-colors text-sm">
-                            {category.replace('_', ' ').toUpperCase()}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex space-x-4">
-                    <button
-                      onClick={createBuild}
-                      className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium transition-all transform hover:scale-105"
-                    >
-                      Criar Build
-                    </button>
-                    <button
-                      onClick={() => setShowBuildForm(false)}
-                      className="px-6 py-3 bg-gray-600/50 hover:bg-gray-500/50 text-white rounded-xl font-medium transition-all backdrop-blur-sm"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
+                  ))}
                 </div>
+                <button onClick={createBuild} className="primary-btn">
+                  Criar Build
+                </button>
               </div>
             )}
 
-            {/* Builds Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="builds-grid">
               {builds.map(build => {
+                const buildProducts = getBuildProducts(build.categories);
                 const total = calculateBuildTotal(build.categories);
+                
                 return (
-                  <div 
-                    key={build.id} 
-                    className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all group cursor-pointer transform hover:scale-105 hover:shadow-2xl"
-                    onClick={() => setSelectedBuild(build)}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <h3 className="text-xl font-semibold text-white group-hover:text-blue-400 transition-colors">
-                        {build.name}
-                      </h3>
+                  <div key={build.id} className="build-card">
+                    <div className="build-header">
+                      <h3>{build.name}</h3>
                       {userRole === 'admin' && (
                         <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteBuild(build.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all p-2 rounded-lg hover:bg-red-400/10"
+                          onClick={() => deleteBuild(build.id)}
+                          className="delete-btn"
                         >
                           🗑️
                         </button>
                       )}
                     </div>
-                    
-                    <div className="space-y-3 mb-6">
-                      {build.categories.slice(0, 4).map(category => {
-                        const categoryProducts = products.filter(p => p.category === category);
-                        const lowestPrice = Math.min(...categoryProducts.map(p => p.price), 0);
-                        return (
-                          <div key={category} className="flex items-center justify-between">
-                            <span className="text-gray-300 text-sm">
-                              {category.replace('_', ' ').toUpperCase()}
+                    <div className="build-products">
+                      {buildProducts.map(product => (
+                        <div key={product.id} className="build-product">
+                          <div className="product-info">
+                            <span className="product-category">
+                              {product.category.replace('_', ' ').toUpperCase()}
                             </span>
-                            {lowestPrice > 0 ? (
-                              <span className="text-blue-400 font-medium text-sm">
-                                R$ {lowestPrice.toFixed(2)}
-                              </span>
-                            ) : (
-                              <span className="text-gray-500 text-sm">N/A</span>
-                            )}
+                            <span className="product-name">{product.name}</span>
                           </div>
-                        );
-                      })}
-                      {build.categories.length > 4 && (
-                        <div className="text-gray-400 text-sm">
-                          +{build.categories.length - 4} categorias
+                          <div className="product-price-info">
+                            <span className="product-price">R$ {product.currentPrice.toFixed(2)}</span>
+                            <button 
+                              onClick={() => showPriceModal(product)}
+                              className="chart-btn"
+                              title="Ver histórico de preços"
+                            >
+                              📊
+                            </button>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                    
-                    <div className="border-t border-gray-600/50 pt-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-300 font-medium">Total:</span>
-                        <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-                          R$ {total.toFixed(2)}
-                        </span>
-                      </div>
+                    <div className="build-footer">
+                      <span className="build-total">Total: R$ {total.toFixed(2)}</span>
                     </div>
                   </div>
                 );
@@ -1145,98 +565,64 @@ export default function PriceTracker() {
 
         {/* Products Tab */}
         {activeTab === 'products' && (
-          <div className="space-y-8">
-            {/* Products Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-4xl font-bold text-white mb-2">Produtos Monitorados</h2>
-                <p className="text-gray-400 text-lg">Todos os produtos com preços atualizados em tempo real</p>
-              </div>
-              
-              {/* Search Bar */}
-              <div className="flex items-center space-x-4">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar produtos..."
-                    className="w-64 px-4 py-3 pl-10 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  />
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">🔍</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Filters and Sort */}
-            <div className="flex flex-wrap items-center justify-between gap-4 p-6 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <span className="text-gray-400 text-sm">📂</span>
-                  <select
-                    value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                    className="px-4 py-2 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-lg text-white focus:ring-2 focus:ring-blue-500 transition-all"
-                  >
-                    <option value="all">Todas as categorias</option>
-                    {categories.map(category => (
-                      <option key={category} value={category}>
-                        {category.replace('_', ' ').toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                <span className="text-gray-400 text-sm">Ordenar por:</span>
-                <select
+          <div className="tab-content">
+            <div className="section-header">
+              <h2>Todos os Produtos</h2>
+              <div className="filters">
+                <input 
+                  type="text"
+                  placeholder="Buscar produtos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="search-input"
+                />
+                <select 
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="px-4 py-2 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-lg text-white focus:ring-2 focus:ring-blue-500 transition-all"
+                  className="select"
                 >
-                  <option value="name">Nome</option>
-                  <option value="category">Categoria</option>
-                  <option value="price">Preço</option>
-                  <option value="website">Loja</option>
+                  <option value="price">Ordenar por Preço</option>
+                  <option value="category">Ordenar por Categoria</option>
                 </select>
-                <button
+                <button 
                   onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="p-2 bg-gray-700/50 hover:bg-gray-600/50 rounded-lg transition-all backdrop-blur-sm"
+                  className="sort-order-btn"
                 >
                   {sortOrder === 'asc' ? '↑' : '↓'}
                 </button>
               </div>
             </div>
 
-            {/* Products Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {getFilteredAndSortedProducts().map(product => (
-                <div
-                  key={product.id}
-                  onClick={() => handleProductClick(product)}
-                  className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 cursor-pointer transition-all group hover:shadow-2xl hover:shadow-blue-500/10 transform hover:scale-105"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
-                      <span className="text-blue-300 text-xs font-medium">
-                        {product.category.replace('_', ' ').toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="px-3 py-1 bg-gray-700/50 rounded-full">
-                      <span className="text-gray-300 text-xs">{product.website}</span>
-                    </div>
-                  </div>
-                  
-                  <h3 className="text-white font-semibold mb-4 group-hover:text-blue-400 transition-colors line-clamp-2 h-12">
-                    {product.name}
-                  </h3>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
-                      R$ {product.price.toFixed(2)}
+            <div className="products-grid">
+              {getSortedProducts().map(product => (
+                <div key={product.id} className="product-card">
+                  <div className="product-header">
+                    <span className="product-category-badge">
+                      {product.category.replace('_', ' ').toUpperCase()}
                     </span>
-                    <span className="text-gray-400 group-hover:text-blue-400 transition-colors text-xl">📊</span>
+                    <span className="product-store">{product.website}</span>
+                  </div>
+                  <h4 className="product-title">{product.name}</h4>
+                  <div className="product-footer">
+                    <span className="product-price-large">R$ {product.currentPrice.toFixed(2)}</span>
+                    <div className="product-actions">
+                      <button 
+                        onClick={() => showPriceModal(product)}
+                        className="chart-btn"
+                        title="Ver histórico"
+                      >
+                        📊
+                      </button>
+                      <a 
+                        href={product.product_link} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="link-btn"
+                        title="Ver na loja"
+                      >
+                        🔗
+                      </a>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1246,463 +632,1000 @@ export default function PriceTracker() {
 
         {/* Admin Tab */}
         {activeTab === 'admin' && userRole === 'admin' && (
-          <div className="space-y-8">
-            {/* Admin Header */}
-            <div className="text-center">
-              <h2 className="text-4xl font-bold text-white mb-2">Painel Administrativo</h2>
-              <p className="text-gray-400 text-lg">Gerencie configurações de busca e monitoramento</p>
+          <div className="tab-content">
+            <div className="section-header">
+              <h2>Configurações de Busca</h2>
             </div>
 
-            {/* Quick Actions */}
-            <div className="flex justify-center">
-              <button
-                onClick={() => setShowSearchForm(!showSearchForm)}
-                className="flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
-              >
-                <span className="text-xl">+</span>
-                <span>Nova Configuração de Busca</span>
+            <div className="admin-form-card">
+              <h3>Adicionar Nova Busca</h3>
+              <div className="form-grid">
+                <input 
+                  type="text"
+                  placeholder="Termo de busca (ex: amd ryzen 5)"
+                  value={newSearch.search_text}
+                  onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
+                  className="input"
+                />
+                <input 
+                  type="text"
+                  placeholder="Categoria (ex: cpu_1)"
+                  value={newSearch.category}
+                  onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
+                  className="input"
+                />
+              </div>
+
+              <div className="keyword-groups">
+                <label>Grupos de Palavras-chave:</label>
+                {newSearch.keywordGroups.map((group, index) => (
+                  <div key={index} className="keyword-group">
+                    <input 
+                      type="text"
+                      placeholder="ex: x3d,5500,processador"
+                      value={group}
+                      onChange={(e) => updateKeywordGroup(index, e.target.value)}
+                      className="input"
+                    />
+                    {newSearch.keywordGroups.length > 1 && (
+                      <button 
+                        onClick={() => removeKeywordGroup(index)}
+                        className="remove-btn"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={addKeywordGroup} className="add-keyword-btn">
+                  + Adicionar Grupo
+                </button>
+              </div>
+
+              <div className="websites-selection">
+                <label>Sites para buscar:</label>
+                <div className="checkbox-group">
+                  {Object.keys(newSearch.websites).map(website => (
+                    <label key={website} className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={newSearch.websites[website]}
+                        onChange={(e) => setNewSearch({
+                          ...newSearch,
+                          websites: {...newSearch.websites, [website]: e.target.checked}
+                        })}
+                      />
+                      <span>{website.charAt(0).toUpperCase() + website.slice(1)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <button onClick={addSearchConfig} className="primary-btn">
+                Adicionar Configuração
               </button>
             </div>
 
-            {/* Search Config Form */}
-            {showSearchForm && (
-              <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
-                <h3 className="text-2xl font-semibold text-white mb-6 flex items-center space-x-2">
-                  <span>🔍</span>
-                  <span>Adicionar Nova Busca</span>
-                </h3>
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Termo de Busca</label>
-                      <input
-                        type="text"
-                        value={newSearch.search_text}
-                        onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
-                        className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        placeholder="Ex: ryzen 5 5600x"
-                      />
+            <div className="configs-list">
+              <h3>Configurações Ativas</h3>
+              <div className="configs-grid">
+                {searchConfigs.map(config => (
+                  <div key={config.id} className="config-card">
+                    <div className="config-header">
+                      <span className="config-term">{config.search_text}</span>
+                      <button 
+                        onClick={() => deleteSearchConfig(config.id)}
+                        className="delete-btn"
+                      >
+                        🗑️
+                      </button>
                     </div>
-                    <div>
-                      <label className="block text-gray-300 text-sm font-medium mb-2">Categoria</label>
-                      <input
-                        type="text"
-                        value={newSearch.category}
-                        onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
-                        className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        placeholder="Ex: cpu"
-                      />
+                    <div className="config-details">
+                      <span className="config-category">{config.category}</span>
+                      <span className="config-website">{config.website}</span>
+                      <button 
+                        onClick={() => toggleSearchActive(config.id, config.is_active)}
+                        className={`status-btn ${config.is_active ? 'active' : 'inactive'}`}
+                      >
+                        {config.is_active ? 'Ativo' : 'Inativo'}
+                      </button>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-3">Grupos de Palavras-chave</label>
-                    {newSearch.keywordGroups.map((group, index) => (
-                      <div key={index} className="flex gap-3 mb-3">
-                        <input 
-                          type="text" 
-                          value={group}
-                          onChange={(e) => updateKeywordGroup(index, e.target.value)}
-                          className="flex-1 px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                          placeholder="Ex: x3d,5500,processador"
-                        />
-                        {newSearch.keywordGroups.length > 1 && (
-                          <button 
-                            type="button" 
-                            onClick={() => removeKeywordGroup(index)}
-                            className="px-4 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl transition-all"
-                          >
-                            Remover
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                    <button 
-                      type="button" 
-                      onClick={addKeywordGroup}
-                      className="px-6 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 rounded-xl transition-all"
-                    >
-                      + Adicionar Grupo
-                    </button>
-                    <p className="text-gray-400 text-sm mt-2">
-                      Cada grupo deve conter palavras-chave separadas por vírgula. Todas as palavras de um grupo devem estar presentes no produto.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-3">Websites</label>
-                    <div className="grid grid-cols-3 gap-4">
-                      {Object.keys(newSearch.websites).map(website => (
-                        <label key={website} className="flex items-center space-x-3 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={newSearch.websites[website]}
-                            onChange={(e) => setNewSearch({
-                              ...newSearch,
-                              websites: {
-                                ...newSearch.websites,
-                                [website]: e.target.checked
-                              }
-                            })}
-                            className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
-                          />
-                          <span className="text-gray-300 group-hover:text-white transition-colors capitalize">
-                            {website}
-                          </span>
-                        </label>
+                    <div className="config-keywords">
+                      {config.keywordGroups.map((group, idx) => (
+                        <span key={idx} className="keyword-tag">{group}</span>
                       ))}
                     </div>
                   </div>
-
-                  <div className="flex items-center space-x-3">
-                    <input 
-                      type="checkbox" 
-                      id="is_active"
-                      checked={newSearch.is_active}
-                      onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
-                      className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
-                    />
-                    <label htmlFor="is_active" className="text-gray-300 cursor-pointer">Busca Ativa</label>
-                  </div>
-
-                  <div className="flex space-x-4">
-                    <button 
-                      onClick={addSearchConfig} 
-                      className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium transition-all transform hover:scale-105"
-                    >
-                      Adicionar Busca
-                    </button>
-                    <button
-                      onClick={() => setShowSearchForm(false)}
-                      className="px-8 py-3 bg-gray-600/50 hover:bg-gray-500/50 text-white rounded-xl font-medium transition-all backdrop-blur-sm"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Search Configs Table */}
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 overflow-hidden">
-              <div className="p-6 border-b border-gray-700/50">
-                <h3 className="text-xl font-semibold text-white flex items-center space-x-2">
-                  <span>⚙️</span>
-                  <span>Configurações Ativas</span>
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-900/50">
-                    <tr>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Termo</th>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Grupos</th>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Categoria</th>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Website</th>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Status</th>
-                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {searchConfigs.map(config => (
-                      <tr key={config.id} className="border-b border-gray-700/30 hover:bg-gray-700/20 transition-colors">
-                        <td className="py-4 px-6">
-                          <div className="text-white font-medium">{config.search_text}</div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="flex flex-col gap-1">
-                            {config.keywordGroups?.map((group, groupIdx) => (
-                              <div key={groupIdx} className="bg-gray-700/50 px-2 py-1 rounded text-xs text-gray-300 inline-block">
-                                {group}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs rounded-full font-medium">
-                            {config.category.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span className="text-gray-300 capitalize">{config.website}</span>
-                        </td>
-                        <td className="py-4 px-6">
-                          <button
-                            onClick={() => toggleSearchActive(config.id, config.is_active)}
-                            className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium transition-all ${
-                              config.is_active 
-                                ? 'bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300' 
-                                : 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300'
-                            }`}
-                          >
-                            <span>{config.is_active ? '✅' : '❌'}</span>
-                            <span>{config.is_active ? 'Ativo' : 'Inativo'}</span>
-                          </button>
-                        </td>
-                        <td className="py-4 px-6">
-                          <button
-                            onClick={() => deleteSearchConfig(config.id)}
-                            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
-                          >
-                            🗑️
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Admin Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-300 text-sm font-medium">Total de Produtos</p>
-                    <p className="text-3xl font-bold text-white">{products.length}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">📦</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur-sm rounded-2xl p-6 border border-green-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-green-300 text-sm font-medium">Builds Configuradas</p>
-                    <p className="text-3xl font-bold text-white">{builds.length}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-green-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">🖥️</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-purple-300 text-sm font-medium">Buscas Ativas</p>
-                    <p className="text-3xl font-bold text-white">
-                      {searchConfigs.filter(c => c.is_active).length}
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 bg-purple-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">👁️</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur-sm rounded-2xl p-6 border border-yellow-500/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-yellow-300 text-sm font-medium">Configurações Total</p>
-                    <p className="text-3xl font-bold text-white">{searchConfigs.length}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-yellow-500/30 rounded-xl flex items-center justify-center">
-                    <span className="text-2xl">⚙️</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* Global Styles */}
-      <style jsx global>{`
-        .line-clamp-2 {
+      {/* Price History Modal */}
+      {selectedProduct && (
+        <div className="modal-overlay" onClick={closePriceModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Histórico de Preços</h3>
+              <button onClick={closePriceModal} className="close-btn">✕</button>
+            </div>
+            <div className="modal-body">
+              <h4>{selectedProduct.name}</h4>
+              <div className="price-chart">
+                {priceHistory.length > 0 ? (
+                  <div className="chart-container">
+                    <div className="chart-bars">
+                      {priceHistory.map((entry, idx) => {
+                        const maxPrice = Math.max(...priceHistory.map(h => h.price));
+                        const minPrice = Math.min(...priceHistory.map(h => h.price));
+                        const height = ((entry.price - minPrice) / (maxPrice - minPrice)) * 100 || 50;
+                        
+                        return (
+                          <div key={idx} className="chart-bar-wrapper">
+                            <div 
+                              className="chart-bar"
+                              style={{ height: `${height}%` }}
+                              title={`R$ ${entry.price.toFixed(2)} - ${new Date(entry.collected_at).toLocaleDateString()}`}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="chart-info">
+                      <div className="price-stats">
+                        <div className="stat">
+                          <span className="stat-label">Menor:</span>
+                          <span className="stat-value">R$ {Math.min(...priceHistory.map(h => h.price)).toFixed(2)}</span>
+                        </div>
+                        <div className="stat">
+                          <span className="stat-label">Atual:</span>
+                          <span className="stat-value current">R$ {selectedProduct.currentPrice.toFixed(2)}</span>
+                        </div>
+                        <div className="stat">
+                          <span className="stat-label">Maior:</span>
+                          <span className="stat-value">R$ {Math.max(...priceHistory.map(h => h.price)).toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="price-variation">
+                        {priceHistory.length > 1 && (
+                          <>
+                            <span className="variation-label">Variação:</span>
+                            <span className={`variation-value ${priceHistory[priceHistory.length - 1].price > priceHistory[0].price ? 'up' : 'down'}`}>
+                              {((priceHistory[priceHistory.length - 1].price - priceHistory[0].price) / priceHistory[0].price * 100).toFixed(1)}%
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="no-data">Sem dados de histórico disponíveis</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+
+        .app-container {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        }
+
+        .header {
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(10px);
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          position: sticky;
+          top: 0;
+          z-index: 100;
+        }
+
+        .header-content {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 1rem 2rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+
+        .logo {
+          font-size: 1.5rem;
+          font-weight: bold;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .logo-icon {
+          -webkit-text-fill-color: initial;
+        }
+
+        .nav-tabs {
+          display: flex;
+          gap: 0.5rem;
+          flex: 1;
+          justify-content: center;
+        }
+
+        .nav-tab {
+          padding: 0.75rem 1.5rem;
+          border: none;
+          background: transparent;
+          color: #6b7280;
+          font-weight: 500;
+          cursor: pointer;
+          border-radius: 0.5rem;
+          transition: all 0.3s;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .nav-tab:hover {
+          background: rgba(103, 126, 234, 0.1);
+          color: #667eea;
+        }
+
+        .nav-tab.active {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+
+        .tab-icon {
+          font-size: 1.2rem;
+        }
+
+        .logout-btn {
+          padding: 0.75rem 1.5rem;
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          color: white;
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          font-weight: 500;
+          transition: transform 0.2s;
+        }
+
+        .logout-btn:hover {
+          transform: scale(1.05);
+        }
+
+        .main-content {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 2rem;
+        }
+
+        .tab-content {
+          animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 2rem;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+
+        .section-header h2 {
+          color: white;
+          font-size: 2rem;
+        }
+
+        .add-btn {
+          padding: 0.75rem 1.5rem;
+          background: rgba(255, 255, 255, 0.9);
+          color: #667eea;
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          font-weight: 500;
+          transition: all 0.3s;
+        }
+
+        .add-btn:hover {
+          background: white;
+          transform: scale(1.05);
+        }
+
+        .filters {
+          display: flex;
+          gap: 1rem;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .search-input {
+          padding: 0.75rem 1rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.9);
+          min-width: 250px;
+          font-size: 1rem;
+        }
+
+        .select {
+          padding: 0.75rem 1rem;
+          border: none;
+          border-radius: 0.5rem;
+          background: rgba(255, 255, 255, 0.9);
+          cursor: pointer;
+          font-size: 1rem;
+        }
+
+        .sort-order-btn {
+          padding: 0.75rem 1rem;
+          background: rgba(255, 255, 255, 0.9);
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          font-size: 1.2rem;
+          transition: transform 0.2s;
+        }
+
+        .sort-order-btn:hover {
+          transform: scale(1.1);
+        }
+
+        .form-card, .admin-form-card {
+          background: rgba(255, 255, 255, 0.95);
+          padding: 2rem;
+          border-radius: 1rem;
+          margin-bottom: 2rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-card h3, .admin-form-card h3 {
+          color: #374151;
+          margin-bottom: 1.5rem;
+        }
+
+        .input {
+          width: 100%;
+          padding: 0.75rem 1rem;
+          border: 2px solid #e5e7eb;
+          border-radius: 0.5rem;
+          font-size: 1rem;
+          transition: border-color 0.3s;
+          margin-bottom: 1rem;
+        }
+
+        .input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+
+        .form-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 1rem;
+          margin-bottom: 1rem;
+        }
+
+        .categories-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 1rem;
+          margin: 1rem 0;
+        }
+
+        .checkbox-label {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 0.5rem;
+          transition: background 0.2s;
+        }
+
+        .checkbox-label:hover {
+          background: rgba(103, 126, 234, 0.1);
+        }
+
+        .checkbox-label input[type="checkbox"] {
+          width: 1.2rem;
+          height: 1.2rem;
+          cursor: pointer;
+        }
+
+        .primary-btn {
+          padding: 0.75rem 2rem;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          font-weight: 500;
+          font-size: 1rem;
+          transition: transform 0.2s;
+        }
+
+        .primary-btn:hover {
+          transform: scale(1.05);
+        }
+
+        .builds-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+          gap: 1.5rem;
+        }
+
+        .build-card {
+          background: rgba(255, 255, 255, 0.95);
+          border-radius: 1rem;
+          padding: 1.5rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+          transition: transform 0.3s;
+        }
+
+        .build-card:hover {
+          transform: translateY(-5px);
+        }
+
+        .build-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
+          padding-bottom: 1rem;
+          border-bottom: 2px solid #e5e7eb;
+        }
+
+        .build-header h3 {
+          color: #374151;
+          font-size: 1.25rem;
+        }
+
+        .delete-btn {
+          background: none;
+          border: none;
+          font-size: 1.2rem;
+          cursor: pointer;
+          transition: transform 0.2s;
+          padding: 0.25rem;
+        }
+
+        .delete-btn:hover {
+          transform: scale(1.2);
+        }
+
+        .build-products {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          margin-bottom: 1rem;
+        }
+
+        .build-product {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.75rem;
+          background: #f9fafb;
+          border-radius: 0.5rem;
+          transition: background 0.2s;
+        }
+
+        .build-product:hover {
+          background: #f3f4f6;
+        }
+
+        .product-info {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          flex: 1;
+        }
+
+        .product-category {
+          font-size: 0.75rem;
+          color: #6b7280;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+
+        .product-name {
+          font-size: 0.9rem;
+          color: #374151;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
         }
-        
-        .bg-clip-text {
+
+        .product-price-info {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .product-price {
+          font-weight: bold;
+          color: #667eea;
+          font-size: 1rem;
+        }
+
+        .chart-btn, .link-btn {
+          background: none;
+          border: none;
+          font-size: 1.2rem;
+          cursor: pointer;
+          transition: transform 0.2s;
+          padding: 0.25rem;
+        }
+
+        .chart-btn:hover, .link-btn:hover {
+          transform: scale(1.2);
+        }
+
+        .build-footer {
+          padding-top: 1rem;
+          border-top: 2px solid #e5e7eb;
+          text-align: right;
+        }
+
+        .build-total {
+          font-size: 1.25rem;
+          font-weight: bold;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           -webkit-background-clip: text;
-          background-clip: text;
+          -webkit-text-fill-color: transparent;
         }
-        
-        .text-transparent {
-          color: transparent;
+
+        .products-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 1.5rem;
         }
-        
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
+
+        .product-card {
+          background: rgba(255, 255, 255, 0.95);
+          border-radius: 1rem;
+          padding: 1.5rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+          transition: transform 0.3s;
+          display: flex;
+          flex-direction: column;
         }
-        
-        ::-webkit-scrollbar-track {
-          background: rgba(75, 85, 99, 0.3);
-          border-radius: 4px;
+
+        .product-card:hover {
+          transform: translateY(-5px);
         }
-        
-        ::-webkit-scrollbar-thumb {
-          background: rgba(59, 130, 246, 0.6);
-          border-radius: 4px;
+
+        .product-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1rem;
         }
-        
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(59, 130, 246, 0.8);
+
+        .product-category-badge {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 0.25rem 0.75rem;
+          border-radius: 1rem;
+          font-size: 0.75rem;
+          font-weight: 600;
         }
-        
-        /* Custom animations */
-        @keyframes slideInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+
+        .product-store {
+          color: #6b7280;
+          font-size: 0.85rem;
+          font-weight: 500;
         }
-        
-        .animate-slideInUp {
-          animation: slideInUp 0.3s ease-out;
-        }
-        
-        /* Smooth focus transitions */
-        input:focus,
-        select:focus,
-        textarea:focus {
-          outline: none;
-          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-        
-        /* Improved button hover effects */
-        button {
-          position: relative;
+
+        .product-title {
+          color: #374151;
+          font-size: 1rem;
+          margin-bottom: 1rem;
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
           overflow: hidden;
+          flex: 1;
         }
-        
-        button::before {
-          content: '';
-          position: absolute;
+
+        .product-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 1rem;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        .product-price-large {
+          font-size: 1.25rem;
+          font-weight: bold;
+          color: #667eea;
+        }
+
+        .product-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .keyword-groups {
+          margin-bottom: 1.5rem;
+        }
+
+        .keyword-groups label {
+          display: block;
+          margin-bottom: 0.5rem;
+          color: #374151;
+          font-weight: 500;
+        }
+
+        .keyword-group {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 0.5rem;
+        }
+
+        .remove-btn {
+          padding: 0.75rem 1rem;
+          background: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          transition: transform 0.2s;
+        }
+
+        .remove-btn:hover {
+          transform: scale(1.05);
+        }
+
+        .add-keyword-btn {
+          padding: 0.5rem 1rem;
+          background: #f3f4f6;
+          color: #374151;
+          border: 2px dashed #d1d5db;
+          border-radius: 0.5rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .add-keyword-btn:hover {
+          background: #e5e7eb;
+          border-color: #9ca3af;
+        }
+
+        .websites-selection {
+          margin-bottom: 1.5rem;
+        }
+
+        .websites-selection label {
+          display: block;
+          margin-bottom: 0.5rem;
+          color: #374151;
+          font-weight: 500;
+        }
+
+        .checkbox-group {
+          display: flex;
+          gap: 1rem;
+        }
+
+        .configs-list {
+          background: rgba(255, 255, 255, 0.95);
+          padding: 2rem;
+          border-radius: 1rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .configs-list h3 {
+          color: #374151;
+          margin-bottom: 1.5rem;
+        }
+
+        .configs-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 1rem;
+        }
+
+        .config-card {
+          background: #f9fafb;
+          padding: 1rem;
+          border-radius: 0.5rem;
+          border: 1px solid #e5e7eb;
+        }
+
+        .config-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+
+        .config-term {
+          font-weight: 600;
+          color: #374151;
+        }
+
+        .config-details {
+          display: flex;
+          gap: 0.5rem;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+
+        .config-category, .config-website {
+          padding: 0.25rem 0.5rem;
+          background: #e5e7eb;
+          border-radius: 0.25rem;
+          font-size: 0.85rem;
+          color: #4b5563;
+        }
+
+        .status-btn {
+          padding: 0.25rem 0.75rem;
+          border: none;
+          border-radius: 0.25rem;
+          cursor: pointer;
+          font-size: 0.85rem;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+
+        .status-btn.active {
+          background: #10b981;
+          color: white;
+        }
+
+        .status-btn.inactive {
+          background: #ef4444;
+          color: white;
+        }
+
+        .config-keywords {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.25rem;
+        }
+
+        .keyword-tag {
+          padding: 0.25rem 0.5rem;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border-radius: 0.25rem;
+          font-size: 0.75rem;
+        }
+
+        .modal-overlay {
+          position: fixed;
           top: 0;
-          left: -100%;
-          width: 100%;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          animation: fadeIn 0.2s;
+        }
+
+        .modal {
+          background: white;
+          border-radius: 1rem;
+          width: 90%;
+          max-width: 600px;
+          max-height: 80vh;
+          overflow: auto;
+          animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1.5rem;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .modal-header h3 {
+          color: #374151;
+        }
+
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 1.5rem;
+          cursor: pointer;
+          color: #6b7280;
+          transition: color 0.2s;
+        }
+
+        .close-btn:hover {
+          color: #374151;
+        }
+
+        .modal-body {
+          padding: 1.5rem;
+        }
+
+        .modal-body h4 {
+          color: #374151;
+          margin-bottom: 1rem;
+          font-size: 1.1rem;
+        }
+
+        .price-chart {
+          margin-top: 1rem;
+        }
+
+        .chart-container {
+          background: #f9fafb;
+          padding: 1.5rem;
+          border-radius: 0.5rem;
+        }
+
+        .chart-bars {
+          display: flex;
+          align-items: flex-end;
+          height: 200px;
+          gap: 2px;
+          margin-bottom: 1rem;
+        }
+
+        .chart-bar-wrapper {
+          flex: 1;
           height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-          transition: left 0.5s;
+          display: flex;
+          align-items: flex-end;
         }
-        
-        button:hover::before {
-          left: 100%;
+
+        .chart-bar {
+          width: 100%;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 2px 2px 0 0;
+          transition: opacity 0.2s;
+          cursor: pointer;
         }
-        
-        /* Glass effect for cards */
-        .glass {
-          background: rgba(31, 41, 55, 0.3);
-          backdrop-filter: blur(20px);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+
+        .chart-bar:hover {
+          opacity: 0.8;
         }
-        
-        /* Loading skeleton */
-        .skeleton {
-          background: linear-gradient(90deg, #374151 25%, #4B5563 50%, #374151 75%);
-          background-size: 200% 100%;
-          animation: loading 2s infinite;
+
+        .chart-info {
+          padding-top: 1rem;
+          border-top: 1px solid #e5e7eb;
         }
-        
-        @keyframes loading {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
+
+        .price-stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 1rem;
+          margin-bottom: 1rem;
         }
-        
-        /* Responsive table */
+
+        .stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .stat-label {
+          font-size: 0.85rem;
+          color: #6b7280;
+          margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+          font-size: 1.1rem;
+          font-weight: bold;
+          color: #374151;
+        }
+
+        .stat-value.current {
+          color: #667eea;
+        }
+
+        .price-variation {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .variation-label {
+          color: #6b7280;
+        }
+
+        .variation-value {
+          font-weight: bold;
+          font-size: 1.1rem;
+        }
+
+        .variation-value.up {
+          color: #ef4444;
+        }
+
+        .variation-value.down {
+          color: #10b981;
+        }
+
+        .no-data {
+          text-align: center;
+          color: #6b7280;
+          padding: 2rem;
+        }
+
         @media (max-width: 768px) {
-          table, thead, tbody, th, td, tr {
-            display: block;
+          .header-content {
+            flex-direction: column;
+            align-items: stretch;
           }
-          
-          thead tr {
-            position: absolute;
-            top: -9999px;
-            left: -9999px;
+
+          .nav-tabs {
+            order: 3;
+            justify-content: stretch;
           }
-          
-          tr {
-            border: 1px solid rgba(75, 85, 99, 0.3);
-            margin-bottom: 1rem;
-            border-radius: 8px;
-            padding: 1rem;
-            background: rgba(31, 41, 55, 0.3);
+
+          .nav-tab {
+            flex: 1;
+            justify-content: center;
           }
-          
-          td {
-            border: none;
-            position: relative;
-            padding: 0.5rem 0;
+
+          .logout-btn {
+            order: 2;
+            width: 100%;
           }
-          
-          td:before {
-            content: attr(data-label) ": ";
-            font-weight: bold;
-            color: #9CA3AF;
+
+          .builds-grid,
+          .products-grid,
+          .configs-grid {
+            grid-template-columns: 1fr;
           }
-        }
-        
-        /* Enhanced hover effects */
-        .hover-lift {
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .hover-lift:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-        
-        /* Gradient borders */
-        .gradient-border {
-          position: relative;
-          background: linear-gradient(45deg, #1F2937, #374151);
-        }
-        
-        .gradient-border::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          padding: 1px;
-          background: linear-gradient(45deg, #3B82F6, #8B5CF6, #F59E0B);
-          border-radius: inherit;
-          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-          mask-composite: exclude;
-        }
-        
-        /* Improved text selection */
-        ::selection {
-          background-color: rgba(59, 130, 246, 0.3);
-          color: white;
-        }
-        
-        ::-moz-selection {
-          background-color: rgba(59, 130, 246, 0.3);
-          color: white;
-        }
-        
-        /* Enhanced focus indicators for accessibility */
-        .focus\:ring-2:focus {
-          outline: 2px solid transparent;
-          outline-offset: 2px;
-          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
-        }
-        
-        /* Smooth page transitions */
-        .page-transition {
-          animation: fadeIn 0.3s ease-in-out;
-        }
-        
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
+
+          .filters {
+            flex-direction: column;
+            width: 100%;
           }
-          to {
-            opacity: 1;
-            transform: translateY(0);
+
+          .search-input,
+          .select {
+            width: 100%;
+          }
+
+          .modal {
+            width: 95%;
+            margin: 1rem;
+          }
+
+          .price-stats {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
