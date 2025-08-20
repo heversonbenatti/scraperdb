@@ -1,14 +1,15 @@
-// index.js
+// index2.js - Versão completa melhorada
 import { supabase } from '../lib/supabaseClient';
 import { useEffect, useState } from 'react';
 import Login from '../components/login';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
 export default function PriceTracker() {
   const [userRole, setUserRole] = useState(null); // 'admin', 'guest', or null
   const [builds, setBuilds] = useState([]);
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedBuild, setSelectedBuild] = useState(null);
   const [priceHistory, setPriceHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchConfigs, setSearchConfigs] = useState([]);
@@ -16,6 +17,7 @@ export default function PriceTracker() {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Form states
   const [newSearch, setNewSearch] = useState({
@@ -34,6 +36,17 @@ export default function PriceTracker() {
     categories: []
   });
   const [showBuildForm, setShowBuildForm] = useState(false);
+  const [showSearchForm, setShowSearchForm] = useState(false);
+
+  // Dashboard states
+  const [dashboardStats, setDashboardStats] = useState({
+    totalProducts: 0,
+    totalBuilds: 0,
+    activeSearches: 0,
+    avgPrice: 0,
+    priceRanges: [],
+    categoryDistribution: []
+  });
 
   // Check if user is already logged in
   useEffect(() => {
@@ -89,6 +102,7 @@ export default function PriceTracker() {
           .filter(product => product.price > 0);
         
         setProducts(productsWithPrices);
+        calculateDashboardStats(productsWithPrices, buildsData);
         
         // Fetch search configurations with keyword groups
         await fetchSearchConfigs();
@@ -209,6 +223,44 @@ export default function PriceTracker() {
     }
   }, [])
 
+  // Calculate dashboard statistics
+  const calculateDashboardStats = (productsData, buildsData) => {
+    const totalProducts = productsData.length;
+    const totalBuilds = buildsData?.length || 0;
+    const activeSearches = searchConfigs.filter(c => c.is_active).length;
+    
+    const prices = productsData.map(p => p.price).filter(p => p > 0);
+    const avgPrice = prices.length ? prices.reduce((sum, price) => sum + price, 0) / prices.length : 0;
+
+    // Price ranges
+    const priceRanges = [
+      { range: '0-500', count: prices.filter(p => p <= 500).length },
+      { range: '500-1000', count: prices.filter(p => p > 500 && p <= 1000).length },
+      { range: '1000-2000', count: prices.filter(p => p > 1000 && p <= 2000).length },
+      { range: '2000+', count: prices.filter(p => p > 2000).length }
+    ];
+
+    // Category distribution
+    const categoryCount = {};
+    productsData.forEach(product => {
+      categoryCount[product.category] = (categoryCount[product.category] || 0) + 1;
+    });
+    
+    const categoryDistribution = Object.entries(categoryCount).map(([category, count]) => ({
+      category: category.replace('_', ' ').toUpperCase(),
+      count
+    }));
+
+    setDashboardStats({
+      totalProducts,
+      totalBuilds,
+      activeSearches,
+      avgPrice,
+      priceRanges,
+      categoryDistribution
+    });
+  };
+
   // Fetch price history for product
   const fetchPriceHistory = async (productId) => {
     try {
@@ -243,10 +295,21 @@ export default function PriceTracker() {
     if (!buildCategories || !products.length) return 0
     
     return buildCategories.reduce((total, category) => {
-      const categoryProduct = products.find(item => item.category === category)
-      return total + (categoryProduct?.price || 0)
+      const categoryProducts = products.filter(item => item.category === category);
+      const lowestPrice = Math.min(...categoryProducts.map(p => p.price), 0);
+      return total + (lowestPrice > 0 ? lowestPrice : 0);
     }, 0)
   }
+
+  // Get lowest priced products for build
+  const getBuildProducts = (buildCategories) => {
+    return buildCategories.map(category => {
+      const categoryProducts = products.filter(item => item.category === category);
+      return categoryProducts.reduce((lowest, current) => {
+        return (!lowest || current.price < lowest.price) ? current : lowest;
+      }, null);
+    }).filter(Boolean);
+  };
 
   // Get filtered and sorted products
   const getFilteredAndSortedProducts = () => {
@@ -254,6 +317,13 @@ export default function PriceTracker() {
     
     if (filterCategory !== 'all') {
       filtered = products.filter(p => p.category === filterCategory);
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(p => 
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
 
     return filtered.sort((a, b) => {
@@ -419,6 +489,7 @@ export default function PriceTracker() {
         is_active: true
       })
 
+      setShowSearchForm(false);
       alert('Search configurations added successfully!')
 
     } catch (error) {
@@ -487,6 +558,9 @@ export default function PriceTracker() {
   // Get unique categories
   const categories = [...new Set(products.map(p => p.category))];
 
+  // Chart colors
+  const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#F97316', '#06B6D4', '#84CC16'];
+
   if (!userRole) {
     return (
       <Login 
@@ -500,8 +574,96 @@ export default function PriceTracker() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-300 text-lg">Carregando dados...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-6"></div>
+          <h2 className="text-2xl font-semibold text-white mb-2">Carregando dados...</h2>
+          <p className="text-gray-400">Aguarde enquanto sincronizamos os preços</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Build detail view
+  if (selectedBuild) {
+    const buildProducts = getBuildProducts(selectedBuild.categories);
+    const total = calculateBuildTotal(selectedBuild.categories);
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-6">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={() => setSelectedBuild(null)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 backdrop-blur-sm rounded-xl transition-all group"
+            >
+              <span className="group-hover:-translate-x-1 transition-transform">←</span>
+              <span className="text-gray-300">Voltar para Builds</span>
+            </button>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              {selectedBuild.name}
+            </h1>
+            <button
+              onClick={() => {
+                supabase.auth.signOut();
+                setUserRole(null);
+              }}
+              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
+            >
+              Sair
+            </button>
+          </div>
+
+          {/* Build Summary */}
+          <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 mb-8 border border-gray-700/50">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-white mb-2">Resumo da Build</h2>
+                <p className="text-gray-400">Componentes selecionados com os melhores preços</p>
+              </div>
+              <div className="text-right">
+                <p className="text-gray-400 text-sm mb-1">Total Estimado</p>
+                <p className="text-4xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
+                  R$ {total.toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Components Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {buildProducts.map((product, index) => (
+              <div
+                key={product.id}
+                className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all group cursor-pointer"
+                onClick={() => handleProductClick(product)}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
+                    <span className="text-blue-300 text-sm font-medium">
+                      {product.category.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="px-3 py-1 bg-gray-700/50 rounded-full">
+                    <span className="text-gray-300 text-sm">{product.website}</span>
+                  </div>
+                </div>
+                
+                <h3 className="text-white font-semibold mb-4 group-hover:text-blue-400 transition-colors line-clamp-2">
+                  {product.name}
+                </h3>
+                
+                <div className="flex items-center justify-between">
+                  <div className="text-2xl font-bold text-green-400">
+                    R$ {product.price.toFixed(2)}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-gray-400 group-hover:text-blue-400 transition-colors">📊</span>
+                    <span className="text-gray-400 text-sm">Ver gráfico</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -521,9 +683,10 @@ export default function PriceTracker() {
           <div className="flex items-center justify-between mb-8">
             <button
               onClick={() => setSelectedProduct(null)}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-600/50 backdrop-blur-sm rounded-xl transition-all group"
             >
-              ← <span className="text-gray-300 ml-2">Voltar</span>
+              <span className="group-hover:-translate-x-1 transition-transform">←</span>
+              <span className="text-gray-300">Voltar</span>
             </button>
             <h1 className="text-2xl font-bold text-white">Histórico de Preços</h1>
             <button
@@ -531,41 +694,44 @@ export default function PriceTracker() {
                 supabase.auth.signOut();
                 setUserRole(null);
               }}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
             >
               Sair
             </button>
           </div>
 
           {/* Product Info */}
-          <div className="bg-gray-800 rounded-xl p-6 mb-8 border border-gray-700">
+          <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 mb-8 border border-gray-700/50">
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-xl font-semibold text-white mb-2">{selectedProduct.name}</h2>
-                <div className="flex items-center space-x-4 text-gray-300">
-                  <span className="px-3 py-1 bg-blue-600 rounded-full text-sm font-medium">
-                    {selectedProduct.category.toUpperCase()}
+                <h2 className="text-2xl font-semibold text-white mb-4">{selectedProduct.name}</h2>
+                <div className="flex items-center space-x-4">
+                  <span className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-full text-blue-300 font-medium">
+                    {selectedProduct.category.replace('_', ' ').toUpperCase()}
                   </span>
-                  <span className="px-3 py-1 bg-gray-700 rounded-full text-sm">
+                  <span className="px-4 py-2 bg-gray-700/50 rounded-full text-gray-300">
                     {selectedProduct.website}
                   </span>
                   <a 
                     href={selectedProduct.product_link} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-full text-sm transition-colors"
+                    className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-full text-green-300 transition-all"
                   >
                     Ver Produto
                   </a>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-3xl font-bold text-white mb-1">
+                <div className="text-4xl font-bold text-white mb-2">
                   R$ {currentPrice.toFixed(2)}
                 </div>
-                <div className={`flex items-center space-x-1 ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                  <span className="text-sm font-medium">
-                    {priceChange >= 0 ? '↗' : '↘'} {priceChange >= 0 ? '+' : ''}R$ {priceChange.toFixed(2)} ({priceChangePercent}%)
+                <div className={`flex items-center justify-end space-x-2 ${priceChange >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                  <span className="text-lg">
+                    {priceChange >= 0 ? '↗' : '↘'}
+                  </span>
+                  <span className="font-semibold">
+                    {priceChange >= 0 ? '+' : ''}R$ {priceChange.toFixed(2)} ({priceChangePercent}%)
                   </span>
                 </div>
               </div>
@@ -573,10 +739,11 @@ export default function PriceTracker() {
           </div>
 
           {/* Price Chart */}
-          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-            <div className="flex items-center space-x-2 mb-6">
-              <h3 className="text-lg font-semibold text-white">Variação de Preço</h3>
-            </div>
+          <div className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
+            <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
+              <span>📈</span>
+              <span>Variação de Preço</span>
+            </h3>
             <div className="h-96">
               {priceHistory.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -594,10 +761,11 @@ export default function PriceTracker() {
                     />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#1F2937',
+                        backgroundColor: 'rgba(31, 41, 55, 0.95)',
                         border: '1px solid #374151',
-                        borderRadius: '8px',
-                        color: '#F3F4F6'
+                        borderRadius: '12px',
+                        color: '#F3F4F6',
+                        backdropFilter: 'blur(8px)'
                       }}
                       formatter={(value) => [`R$ ${value.toFixed(2)}`, 'Preço']}
                     />
@@ -627,56 +795,74 @@ export default function PriceTracker() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
       {/* Header */}
-      <header className="border-b border-gray-700 bg-gray-900/50 backdrop-blur-sm sticky top-0 z-40">
+      <header className="border-b border-gray-700/50 bg-gray-900/30 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold">PC</span>
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
+                <span className="text-white font-bold text-lg">PC</span>
               </div>
               <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
                   PC Price Tracker
                 </h1>
-                <p className="text-gray-400 text-sm">Monitor de preços inteligente</p>
+                <p className="text-gray-400 text-sm">Monitor inteligente de preços</p>
               </div>
             </div>
             
-            <div className="flex items-center space-x-4">
-              <div className="flex bg-gray-800 rounded-lg p-1">
+            <div className="flex items-center space-x-6">
+              {/* Navigation Tabs */}
+              <nav className="flex bg-gray-800/50 backdrop-blur-sm rounded-xl p-1 border border-gray-700/50">
                 <button
-                  onClick={() => setActiveTab('builds')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'builds' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'dashboard' 
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
                   }`}
                 >
-                  Builds
+                  📊 Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveTab('builds')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'builds' 
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
+                  }`}
+                >
+                  🖥️ Builds
                 </button>
                 <button
                   onClick={() => setActiveTab('products')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'products' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'products' 
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
                   }`}
                 >
-                  Produtos
+                  📦 Produtos
                 </button>
                 {userRole === 'admin' && (
                   <button
                     onClick={() => setActiveTab('admin')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                      activeTab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      activeTab === 'admin' 
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg' 
+                        : 'text-gray-300 hover:text-white hover:bg-gray-700/50'
                     }`}
                   >
-                    Admin
+                    ⚙️ Admin
                   </button>
                 )}
-              </div>
+              </nav>
+              
               <button
                 onClick={() => {
                   supabase.auth.signOut();
                   setUserRole(null);
                 }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+                className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl font-medium transition-all backdrop-blur-sm"
               >
                 Sair
               </button>
@@ -686,20 +872,146 @@ export default function PriceTracker() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Dashboard Tab */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-8">
+            <div className="text-center mb-8">
+              <h2 className="text-4xl font-bold text-white mb-4">Dashboard Analytics</h2>
+              <p className="text-gray-400 text-lg">Visão geral dos dados de preços e produtos</p>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-blue-300 text-sm font-medium">Total de Produtos</p>
+                    <p className="text-3xl font-bold text-white">{dashboardStats.totalProducts}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">📦</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur-sm rounded-2xl p-6 border border-green-500/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-300 text-sm font-medium">Builds Configuradas</p>
+                    <p className="text-3xl font-bold text-white">{dashboardStats.totalBuilds}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-green-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">🖥️</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-300 text-sm font-medium">Buscas Ativas</p>
+                    <p className="text-3xl font-bold text-white">{dashboardStats.activeSearches}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">👁️</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur-sm rounded-2xl p-6 border border-yellow-500/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-yellow-300 text-sm font-medium">Preço Médio</p>
+                    <p className="text-3xl font-bold text-white">R$ {dashboardStats.avgPrice.toFixed(0)}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-yellow-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">💰</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Price Distribution */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
+                <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
+                  <span>📊</span>
+                  <span>Distribuição por Faixa de Preço</span>
+                </h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardStats.priceRanges}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis dataKey="range" stroke="#9CA3AF" />
+                      <YAxis stroke="#9CA3AF" />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'rgba(31, 41, 55, 0.95)',
+                          border: '1px solid #374151',
+                          borderRadius: '12px',
+                          color: '#F3F4F6'
+                        }}
+                      />
+                      <Bar dataKey="count" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Category Distribution */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
+                <h3 className="text-xl font-semibold text-white mb-6 flex items-center space-x-2">
+                  <span>🍰</span>
+                  <span>Produtos por Categoria</span>
+                </h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={dashboardStats.categoryDistribution}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="count"
+                        label={({ category, count }) => `${category}: ${count}`}
+                      >
+                        {dashboardStats.categoryDistribution.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'rgba(31, 41, 55, 0.95)',
+                          border: '1px solid #374151',
+                          borderRadius: '12px',
+                          color: '#F3F4F6'
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Builds Tab */}
         {activeTab === 'builds' && (
           <div className="space-y-8">
             {/* Builds Header */}
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-3xl font-bold text-white mb-2">Builds Configuradas</h2>
-                <p className="text-gray-400">Configurações completas de PC com preços atualizados</p>
+                <h2 className="text-4xl font-bold text-white mb-2">Builds Configuradas</h2>
+                <p className="text-gray-400 text-lg">Configurações completas de PC com preços atualizados</p>
               </div>
               {userRole === 'admin' && (
                 <button
                   onClick={() => setShowBuildForm(!showBuildForm)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                  className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
                 >
-                  <span>+</span>
+                  <span className="text-xl">+</span>
                   <span>Nova Build</span>
                 </button>
               )}
@@ -707,9 +1019,12 @@ export default function PriceTracker() {
 
             {/* Build Form */}
             {showBuildForm && userRole === 'admin' && (
-              <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-                <h3 className="text-lg font-semibold text-white mb-4">Criar Nova Build</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
+                <h3 className="text-2xl font-semibold text-white mb-6 flex items-center space-x-2">
+                  <span>🛠️</span>
+                  <span>Criar Nova Build</span>
+                </h3>
+                <div className="space-y-6">
                   <div>
                     <label className="block text-gray-300 text-sm font-medium mb-2">
                       Nome da Build
@@ -718,91 +1033,105 @@ export default function PriceTracker() {
                       type="text"
                       value={newBuild.name}
                       onChange={(e) => setNewBuild({...newBuild, name: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       placeholder="Ex: Gaming PC 2024"
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-2">
-                      Categorias
+                    <label className="block text-gray-300 text-sm font-medium mb-3">
+                      Selecionar Categorias
                     </label>
-                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                       {categories.map(category => (
-                        <label key={category} className="flex items-center space-x-2 cursor-pointer">
+                        <label key={category} className="flex items-center space-x-3 cursor-pointer group">
                           <input
                             type="checkbox"
                             checked={newBuild.categories.includes(category)}
                             onChange={() => toggleCategoryInBuild(category)}
-                            className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                            className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
                           />
-                          <span className="text-gray-300 text-sm">{category.replace('_', ' ').toUpperCase()}</span>
+                          <span className="text-gray-300 group-hover:text-white transition-colors text-sm">
+                            {category.replace('_', ' ').toUpperCase()}
+                          </span>
                         </label>
                       ))}
                     </div>
                   </div>
-                </div>
-                <div className="flex space-x-4 mt-4">
-                  <button
-                    onClick={createBuild}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Criar Build
-                  </button>
-                  <button
-                    onClick={() => setShowBuildForm(false)}
-                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Cancelar
-                  </button>
+                  <div className="flex space-x-4">
+                    <button
+                      onClick={createBuild}
+                      className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium transition-all transform hover:scale-105"
+                    >
+                      Criar Build
+                    </button>
+                    <button
+                      onClick={() => setShowBuildForm(false)}
+                      className="px-6 py-3 bg-gray-600/50 hover:bg-gray-500/50 text-white rounded-xl font-medium transition-all backdrop-blur-sm"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Builds Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {builds.map(build => {
                 const total = calculateBuildTotal(build.categories);
                 return (
-                  <div key={build.id} className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-blue-500 transition-colors group">
+                  <div 
+                    key={build.id} 
+                    className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 transition-all group cursor-pointer transform hover:scale-105 hover:shadow-2xl"
+                    onClick={() => setSelectedBuild(build)}
+                  >
                     <div className="flex items-start justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">
+                      <h3 className="text-xl font-semibold text-white group-hover:text-blue-400 transition-colors">
                         {build.name}
                       </h3>
                       {userRole === 'admin' && (
                         <button 
-                          onClick={() => deleteBuild(build.id)}
-                          className="text-gray-400 hover:text-red-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBuild(build.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-400 transition-all p-2 rounded-lg hover:bg-red-400/10"
                         >
                           🗑️
                         </button>
                       )}
                     </div>
                     
-                    <div className="space-y-3 mb-4">
-                      {build.categories.map(category => {
-                        const product = products.find(p => p.category === category);
+                    <div className="space-y-3 mb-6">
+                      {build.categories.slice(0, 4).map(category => {
+                        const categoryProducts = products.filter(p => p.category === category);
+                        const lowestPrice = Math.min(...categoryProducts.map(p => p.price), 0);
                         return (
                           <div key={category} className="flex items-center justify-between">
-                            <span className="text-gray-300 text-sm">{category.replace('_', ' ').toUpperCase()}</span>
-                            {product ? (
-                              <button
-                                onClick={() => handleProductClick(product)}
-                                className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors cursor-pointer"
-                              >
-                                R$ {product.price.toFixed(2)}
-                              </button>
+                            <span className="text-gray-300 text-sm">
+                              {category.replace('_', ' ').toUpperCase()}
+                            </span>
+                            {lowestPrice > 0 ? (
+                              <span className="text-blue-400 font-medium text-sm">
+                                R$ {lowestPrice.toFixed(2)}
+                              </span>
                             ) : (
                               <span className="text-gray-500 text-sm">N/A</span>
                             )}
                           </div>
                         );
                       })}
+                      {build.categories.length > 4 && (
+                        <div className="text-gray-400 text-sm">
+                          +{build.categories.length - 4} categorias
+                        </div>
+                      )}
                     </div>
                     
-                    <div className="border-t border-gray-700 pt-4">
+                    <div className="border-t border-gray-600/50 pt-4">
                       <div className="flex items-center justify-between">
                         <span className="text-gray-300 font-medium">Total:</span>
-                        <span className="text-xl font-bold text-green-400">
+                        <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
                           R$ {total.toFixed(2)}
                         </span>
                       </div>
@@ -814,49 +1143,69 @@ export default function PriceTracker() {
           </div>
         )}
 
+        {/* Products Tab */}
         {activeTab === 'products' && (
           <div className="space-y-8">
             {/* Products Header */}
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-3xl font-bold text-white mb-2">Produtos Monitorados</h2>
-                <p className="text-gray-400">Todos os produtos com preços atualizados em tempo real</p>
+                <h2 className="text-4xl font-bold text-white mb-2">Produtos Monitorados</h2>
+                <p className="text-gray-400 text-lg">Todos os produtos com preços atualizados em tempo real</p>
               </div>
               
-              {/* Filters and Sort */}
+              {/* Search Bar */}
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar produtos..."
+                    className="w-64 px-4 py-3 pl-10 bg-gray-800/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  />
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">🔍</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Filters and Sort */}
+            <div className="flex flex-wrap items-center justify-between gap-4 p-6 bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
-                  <span className="text-gray-400 text-sm">🔍</span>
+                  <span className="text-gray-400 text-sm">📂</span>
                   <select
                     value={filterCategory}
                     onChange={(e) => setFilterCategory(e.target.value)}
-                    className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
+                    className="px-4 py-2 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-lg text-white focus:ring-2 focus:ring-blue-500 transition-all"
                   >
                     <option value="all">Todas as categorias</option>
                     {categories.map(category => (
-                      <option key={category} value={category}>{category.replace('_', ' ').toUpperCase()}</option>
+                      <option key={category} value={category}>
+                        {category.replace('_', ' ').toUpperCase()}
+                      </option>
                     ))}
                   </select>
                 </div>
-                
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                    className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-                  >
-                    {sortOrder === 'asc' ? '↑' : '↓'}
-                  </button>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="name">Nome</option>
-                    <option value="category">Categoria</option>
-                    <option value="price">Preço</option>
-                    <option value="website">Loja</option>
-                  </select>
-                </div>
+              </div>
+              
+              <div className="flex items-center space-x-4">
+                <span className="text-gray-400 text-sm">Ordenar por:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-4 py-2 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-lg text-white focus:ring-2 focus:ring-blue-500 transition-all"
+                >
+                  <option value="name">Nome</option>
+                  <option value="category">Categoria</option>
+                  <option value="price">Preço</option>
+                  <option value="website">Loja</option>
+                </select>
+                <button
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="p-2 bg-gray-700/50 hover:bg-gray-600/50 rounded-lg transition-all backdrop-blur-sm"
+                >
+                  {sortOrder === 'asc' ? '↑' : '↓'}
+                </button>
               </div>
             </div>
 
@@ -866,26 +1215,28 @@ export default function PriceTracker() {
                 <div
                   key={product.id}
                   onClick={() => handleProductClick(product)}
-                  className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-blue-500 cursor-pointer transition-all group hover:shadow-xl hover:shadow-blue-500/10"
+                  className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/50 hover:border-blue-500/50 cursor-pointer transition-all group hover:shadow-2xl hover:shadow-blue-500/10 transform hover:scale-105"
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <span className="px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded-full">
-                      {product.category.replace('_', ' ').toUpperCase()}
-                    </span>
-                    <span className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded-full">
-                      {product.website}
-                    </span>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full">
+                      <span className="text-blue-300 text-xs font-medium">
+                        {product.category.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="px-3 py-1 bg-gray-700/50 rounded-full">
+                      <span className="text-gray-300 text-xs">{product.website}</span>
+                    </div>
                   </div>
                   
-                  <h3 className="text-white font-medium mb-3 group-hover:text-blue-400 transition-colors line-clamp-2">
+                  <h3 className="text-white font-semibold mb-4 group-hover:text-blue-400 transition-colors line-clamp-2 h-12">
                     {product.name}
                   </h3>
                   
                   <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold text-green-400">
+                    <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
                       R$ {product.price.toFixed(2)}
                     </span>
-                    <span className="text-gray-400 group-hover:text-blue-400 transition-colors">📊</span>
+                    <span className="text-gray-400 group-hover:text-blue-400 transition-colors text-xl">📊</span>
                   </div>
                 </div>
               ))}
@@ -893,169 +1244,205 @@ export default function PriceTracker() {
           </div>
         )}
 
+        {/* Admin Tab */}
         {activeTab === 'admin' && userRole === 'admin' && (
           <div className="space-y-8">
             {/* Admin Header */}
-            <div>
-              <h2 className="text-3xl font-bold text-white mb-2">Painel Administrativo</h2>
-              <p className="text-gray-400">Gerencie configurações de busca e monitoramento</p>
+            <div className="text-center">
+              <h2 className="text-4xl font-bold text-white mb-2">Painel Administrativo</h2>
+              <p className="text-gray-400 text-lg">Gerencie configurações de busca e monitoramento</p>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowSearchForm(!showSearchForm)}
+                className="flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
+              >
+                <span className="text-xl">+</span>
+                <span>Nova Configuração de Busca</span>
+              </button>
             </div>
 
             {/* Search Config Form */}
-            <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-4">Adicionar Nova Busca</h3>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-2">Termo de Busca</label>
-                    <input
-                      type="text"
-                      value={newSearch.search_text}
-                      onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-                      placeholder="Ex: ryzen 5 5600x"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-300 text-sm font-medium mb-2">Categoria</label>
-                    <input
-                      type="text"
-                      value={newSearch.category}
-                      onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-                      placeholder="Ex: cpu"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-gray-300 text-sm font-medium mb-2">Grupos de Palavras-chave</label>
-                  {newSearch.keywordGroups.map((group, index) => (
-                    <div key={index} className="flex gap-2 mb-2">
-                      <input 
-                        type="text" 
-                        value={group}
-                        onChange={(e) => updateKeywordGroup(index, e.target.value)}
-                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-                        placeholder="Ex: x3d,5500,processador"
+            {showSearchForm && (
+              <div className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50">
+                <h3 className="text-2xl font-semibold text-white mb-6 flex items-center space-x-2">
+                  <span>🔍</span>
+                  <span>Adicionar Nova Busca</span>
+                </h3>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Termo de Busca</label>
+                      <input
+                        type="text"
+                        value={newSearch.search_text}
+                        onChange={(e) => setNewSearch({...newSearch, search_text: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        placeholder="Ex: ryzen 5 5600x"
                       />
-                      {newSearch.keywordGroups.length > 1 && (
-                        <button 
-                          type="button" 
-                          onClick={() => removeKeywordGroup(index)}
-                          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                        >
-                          Remover
-                        </button>
-                      )}
                     </div>
-                  ))}
-                  <button 
-                    type="button" 
-                    onClick={addKeywordGroup}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                  >
-                    Adicionar Grupo
-                  </button>
-                  <p className="text-gray-400 text-xs mt-2">
-                    Cada grupo deve conter palavras-chave separadas por vírgula. Todas as palavras de um grupo devem estar presentes no produto.
-                  </p>
-                </div>
+                    <div>
+                      <label className="block text-gray-300 text-sm font-medium mb-2">Categoria</label>
+                      <input
+                        type="text"
+                        value={newSearch.category}
+                        onChange={(e) => setNewSearch({...newSearch, category: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        placeholder="Ex: cpu"
+                      />
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block text-gray-300 text-sm font-medium mb-2">Websites</label>
-                  <div className="flex space-x-4">
-                    {Object.keys(newSearch.websites).map(website => (
-                      <label key={website} className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newSearch.websites[website]}
-                          onChange={(e) => setNewSearch({
-                            ...newSearch,
-                            websites: {
-                              ...newSearch.websites,
-                              [website]: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                  <div>
+                    <label className="block text-gray-300 text-sm font-medium mb-3">Grupos de Palavras-chave</label>
+                    {newSearch.keywordGroups.map((group, index) => (
+                      <div key={index} className="flex gap-3 mb-3">
+                        <input 
+                          type="text" 
+                          value={group}
+                          onChange={(e) => updateKeywordGroup(index, e.target.value)}
+                          className="flex-1 px-4 py-3 bg-gray-700/50 backdrop-blur-sm border border-gray-600/50 rounded-xl text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                          placeholder="Ex: x3d,5500,processador"
                         />
-                        <span className="text-gray-300 text-sm capitalize">{website}</span>
-                      </label>
+                        {newSearch.keywordGroups.length > 1 && (
+                          <button 
+                            type="button" 
+                            onClick={() => removeKeywordGroup(index)}
+                            className="px-4 py-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-xl transition-all"
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </div>
                     ))}
+                    <button 
+                      type="button" 
+                      onClick={addKeywordGroup}
+                      className="px-6 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 rounded-xl transition-all"
+                    >
+                      + Adicionar Grupo
+                    </button>
+                    <p className="text-gray-400 text-sm mt-2">
+                      Cada grupo deve conter palavras-chave separadas por vírgula. Todas as palavras de um grupo devem estar presentes no produto.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-300 text-sm font-medium mb-3">Websites</label>
+                    <div className="grid grid-cols-3 gap-4">
+                      {Object.keys(newSearch.websites).map(website => (
+                        <label key={website} className="flex items-center space-x-3 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={newSearch.websites[website]}
+                            onChange={(e) => setNewSearch({
+                              ...newSearch,
+                              websites: {
+                                ...newSearch.websites,
+                                [website]: e.target.checked
+                              }
+                            })}
+                            className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
+                          />
+                          <span className="text-gray-300 group-hover:text-white transition-colors capitalize">
+                            {website}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <input 
+                      type="checkbox" 
+                      id="is_active"
+                      checked={newSearch.is_active}
+                      onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
+                      className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 transition-colors"
+                    />
+                    <label htmlFor="is_active" className="text-gray-300 cursor-pointer">Busca Ativa</label>
+                  </div>
+
+                  <div className="flex space-x-4">
+                    <button 
+                      onClick={addSearchConfig} 
+                      className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-xl font-medium transition-all transform hover:scale-105"
+                    >
+                      Adicionar Busca
+                    </button>
+                    <button
+                      onClick={() => setShowSearchForm(false)}
+                      className="px-8 py-3 bg-gray-600/50 hover:bg-gray-500/50 text-white rounded-xl font-medium transition-all backdrop-blur-sm"
+                    >
+                      Cancelar
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="checkbox" 
-                    id="is_active"
-                    checked={newSearch.is_active}
-                    onChange={(e) => setNewSearch({...newSearch, is_active: e.target.checked})}
-                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="is_active" className="text-gray-300 text-sm">Ativo</label>
-                </div>
-
-                <button 
-                  onClick={addSearchConfig} 
-                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
-                >
-                  Adicionar Busca
-                </button>
               </div>
-            </div>
+            )}
 
             {/* Search Configs Table */}
-            <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-              <h3 className="text-lg font-semibold text-white mb-4">Configurações Ativas</h3>
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 overflow-hidden">
+              <div className="p-6 border-b border-gray-700/50">
+                <h3 className="text-xl font-semibold text-white flex items-center space-x-2">
+                  <span>⚙️</span>
+                  <span>Configurações Ativas</span>
+                </h3>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-700">
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Termo</th>
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Grupos</th>
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Categoria</th>
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Website</th>
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Status</th>
-                      <th className="text-left py-3 px-4 text-gray-300 font-medium">Ações</th>
+                  <thead className="bg-gray-900/50">
+                    <tr>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Termo</th>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Grupos</th>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Categoria</th>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Website</th>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Status</th>
+                      <th className="text-left py-4 px-6 text-gray-300 font-medium">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
                     {searchConfigs.map(config => (
-                      <tr key={config.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                        <td className="py-3 px-4 text-white">{config.search_text}</td>
-                        <td className="py-3 px-4">
+                      <tr key={config.id} className="border-b border-gray-700/30 hover:bg-gray-700/20 transition-colors">
+                        <td className="py-4 px-6">
+                          <div className="text-white font-medium">{config.search_text}</div>
+                        </td>
+                        <td className="py-4 px-6">
                           <div className="flex flex-col gap-1">
                             {config.keywordGroups?.map((group, groupIdx) => (
-                              <div key={groupIdx} className="bg-gray-700 px-2 py-1 rounded text-xs text-gray-300">
+                              <div key={groupIdx} className="bg-gray-700/50 px-2 py-1 rounded text-xs text-gray-300 inline-block">
                                 {group}
                               </div>
                             ))}
                           </div>
                         </td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
+                        <td className="py-4 px-6">
+                          <span className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs rounded-full font-medium">
                             {config.category.toUpperCase()}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-gray-300 capitalize">{config.website}</td>
-                        <td className="py-3 px-4">
+                        <td className="py-4 px-6">
+                          <span className="text-gray-300 capitalize">{config.website}</span>
+                        </td>
+                        <td className="py-4 px-6">
                           <button
                             onClick={() => toggleSearchActive(config.id, config.is_active)}
-                            className={`flex items-center space-x-1 px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                            className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium transition-all ${
                               config.is_active 
-                                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                                : 'bg-red-600 hover:bg-red-700 text-white'
+                                ? 'bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300' 
+                                : 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300'
                             }`}
                           >
-                            <span>{config.is_active ? '👁️' : '❌'}</span>
+                            <span>{config.is_active ? '✅' : '❌'}</span>
                             <span>{config.is_active ? 'Ativo' : 'Inativo'}</span>
                           </button>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="py-4 px-6">
                           <button
                             onClick={() => deleteSearchConfig(config.id)}
-                            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
                           >
                             🗑️
                           </button>
@@ -1067,37 +1454,55 @@ export default function PriceTracker() {
               </div>
             </div>
 
-            {/* Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            {/* Admin Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-400 text-sm">Total de Produtos</p>
-                    <p className="text-2xl font-bold text-white">{products.length}</p>
+                    <p className="text-blue-300 text-sm font-medium">Total de Produtos</p>
+                    <p className="text-3xl font-bold text-white">{products.length}</p>
                   </div>
-                  <span className="text-3xl">📦</span>
+                  <div className="w-12 h-12 bg-blue-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">📦</span>
+                  </div>
                 </div>
               </div>
               
-              <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <div className="bg-gradient-to-br from-green-500/20 to-green-600/20 backdrop-blur-sm rounded-2xl p-6 border border-green-500/30">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-400 text-sm">Builds Configuradas</p>
-                    <p className="text-2xl font-bold text-white">{builds.length}</p>
+                    <p className="text-green-300 text-sm font-medium">Builds Configuradas</p>
+                    <p className="text-3xl font-bold text-white">{builds.length}</p>
                   </div>
-                  <span className="text-3xl">⚙️</span>
+                  <div className="w-12 h-12 bg-green-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">🖥️</span>
+                  </div>
                 </div>
               </div>
               
-              <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/30">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-gray-400 text-sm">Buscas Ativas</p>
-                    <p className="text-2xl font-bold text-white">
+                    <p className="text-purple-300 text-sm font-medium">Buscas Ativas</p>
+                    <p className="text-3xl font-bold text-white">
                       {searchConfigs.filter(c => c.is_active).length}
                     </p>
                   </div>
-                  <span className="text-3xl">👁️</span>
+                  <div className="w-12 h-12 bg-purple-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">👁️</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 backdrop-blur-sm rounded-2xl p-6 border border-yellow-500/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-yellow-300 text-sm font-medium">Configurações Total</p>
+                    <p className="text-3xl font-bold text-white">{searchConfigs.length}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-yellow-500/30 rounded-xl flex items-center justify-center">
+                    <span className="text-2xl">⚙️</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1105,8 +1510,8 @@ export default function PriceTracker() {
         )}
       </main>
 
-      {/* CSS Styles */}
-      <style jsx>{`
+      {/* Global Styles */}
+      <style jsx global>{`
         .line-clamp-2 {
           display: -webkit-box;
           -webkit-line-clamp: 2;
@@ -1122,274 +1527,183 @@ export default function PriceTracker() {
         .text-transparent {
           color: transparent;
         }
-
-        .container {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 2rem;
-          color: #e0e0e0;
+        
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
         }
-        .guest-view .admin-only {
-          display: none;
-        }
-        .guest-view .delete-btn,
-        .guest-view .add-btn,
-        .guest-view .create-btn,
-        .guest-view .status-btn,
-        .guest-view input[type="checkbox"],
-        .guest-view input[type="text"] {
-          display: none;
-        }
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 2rem;
-        }
-        h1, h2, h3 {
-          color: #ffffff;
-        }
-        .builds-section {
-          margin-bottom: 3rem;
-        }
-        .builds-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-        }
-        .add-build-btn {
-          background-color: #1971c2;
-          color: white;
-          padding: 0.5rem 1rem;
-          border: none;
+        
+        ::-webkit-scrollbar-track {
+          background: rgba(75, 85, 99, 0.3);
           border-radius: 4px;
-          cursor: pointer;
         }
-        .build-form {
-          background-color: #1e1e1e;
-          padding: 1.5rem;
-          border-radius: 8px;
-          margin-bottom: 2rem;
-          border: 1px solid #333;
+        
+        ::-webkit-scrollbar-thumb {
+          background: rgba(59, 130, 246, 0.6);
+          border-radius: 4px;
         }
-        .form-group {
-          margin-bottom: 1rem;
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(59, 130, 246, 0.8);
         }
-        .form-group label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-weight: bold;
-          color: #e0e0e0;
+        
+        /* Custom animations */
+        @keyframes slideInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
-        .form-group input {
+        
+        .animate-slideInUp {
+          animation: slideInUp 0.3s ease-out;
+        }
+        
+        /* Smooth focus transitions */
+        input:focus,
+        select:focus,
+        textarea:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        /* Improved button hover effects */
+        button {
+          position: relative;
+          overflow: hidden;
+        }
+        
+        button::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
           width: 100%;
-          padding: 0.5rem;
-          background-color: #333;
-          color: #e0e0e0;
-          border: 1px solid #444;
-          border-radius: 4px;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+          transition: left 0.5s;
         }
-        .keyword-group-input {
-          display: flex;
-          gap: 0.5rem;
-          margin-bottom: 0.5rem;
-          align-items: center;
+        
+        button:hover::before {
+          left: 100%;
         }
-        .keyword-group-input input {
-          flex: 1;
+        
+        /* Glass effect for cards */
+        .glass {
+          background: rgba(31, 41, 55, 0.3);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .remove-group-btn {
-          background-color: #c92a2a;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          white-space: nowrap;
+        
+        /* Loading skeleton */
+        .skeleton {
+          background: linear-gradient(90deg, #374151 25%, #4B5563 50%, #374151 75%);
+          background-size: 200% 100%;
+          animation: loading 2s infinite;
         }
-        .add-group-btn {
-          background-color: #1971c2;
-          color: white;
-          padding: 0.5rem 1rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 0.5rem;
+        
+        @keyframes loading {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
         }
-        .category-checkboxes {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 0.5rem;
-          margin-top: 0.5rem;
+        
+        /* Responsive table */
+        @media (max-width: 768px) {
+          table, thead, tbody, th, td, tr {
+            display: block;
+          }
+          
+          thead tr {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+          }
+          
+          tr {
+            border: 1px solid rgba(75, 85, 99, 0.3);
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            padding: 1rem;
+            background: rgba(31, 41, 55, 0.3);
+          }
+          
+          td {
+            border: none;
+            position: relative;
+            padding: 0.5rem 0;
+          }
+          
+          td:before {
+            content: attr(data-label) ": ";
+            font-weight: bold;
+            color: #9CA3AF;
+          }
         }
-        .category-checkboxes label {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          cursor: pointer;
+        
+        /* Enhanced hover effects */
+        .hover-lift {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .create-btn {
-          background-color: #2b8a3e;
-          color: white;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 1rem;
+        
+        .hover-lift:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
-        .builds-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 1.5rem;
+        
+        /* Gradient borders */
+        .gradient-border {
+          position: relative;
+          background: linear-gradient(45deg, #1F2937, #374151);
         }
-        .build-card {
-          border: 1px solid #333;
-          border-radius: 8px;
-          padding: 1.5rem;
-          background-color: #1e1e1e;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        
+        .gradient-border::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          padding: 1px;
+          background: linear-gradient(45deg, #3B82F6, #8B5CF6, #F59E0B);
+          border-radius: inherit;
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask-composite: exclude;
         }
-        .build-card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-        }
-        .build-name {
-          margin: 0;
-          cursor: pointer;
-          color: #4dabf7;
-        }
-        .build-name:hover {
-          text-decoration: underline;
-        }
-        .build-categories {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-          margin-bottom: 1rem;
-        }
-        .category-tag {
-          background-color: #333;
-          padding: 0.25rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.8rem;
-        }
-        .build-total {
-          font-weight: bold;
-          color: #ffffff;
-          margin-top: 1rem;
-        }
-        .delete-btn {
-          background-color: #c92a2a;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .search-management {
-          margin-top: 3rem;
-          padding: 2rem;
-          background-color: #1e1e1e;
-          border-radius: 8px;
-          border: 1px solid #333;
-        }
-        .add-search-form {
-          margin-bottom: 2rem;
-          padding: 1.5rem;
-          background-color: #252525;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          color: #e0e0e0;
-          border: 1px solid #333;
-        }
-        .website-checkboxes {
-          display: flex;
-          gap: 1rem;
-          margin-top: 0.5rem;
-        }
-        .website-checkboxes label {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          cursor: pointer;
-        }
-        .helper-text {
-          font-size: 0.8rem;
-          color: #a5a5a5;
-          margin-top: 0.25rem;
-        }
-        .add-btn {
-          background-color: #2b8a3e;
-          color: white;
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 1rem;
-        }
-        .search-configs-list {
-          background-color: #252525;
-          padding: 1.5rem;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          border: 1px solid #333;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          color: #e0e0e0;
-        }
-        th, td {
-          padding: 0.75rem;
-          text-align: left;
-          border-bottom: 1px solid #333;
-        }
-        th {
-          background-color: #333;
-        }
-        .keyword-groups-display {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-        }
-        .keyword-group-display {
-          background-color: #333;
-          padding: 0.25rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.85rem;
-          display: inline-block;
-          margin-right: 0.25rem;
-        }
-        .status-btn {
-          padding: 0.25rem 0.5rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .status-btn.active {
-          background-color: #2b8a3e;
+        
+        /* Improved text selection */
+        ::selection {
+          background-color: rgba(59, 130, 246, 0.3);
           color: white;
         }
-        .status-btn.inactive {
-          background-color: #c92a2a;
+        
+        ::-moz-selection {
+          background-color: rgba(59, 130, 246, 0.3);
           color: white;
         }
-        .loading {
-          text-align: center;
-          padding: 2rem;
-          font-size: 1.2rem;
-          color: #e0e0e0;
+        
+        /* Enhanced focus indicators for accessibility */
+        .focus\:ring-2:focus {
+          outline: 2px solid transparent;
+          outline-offset: 2px;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
         }
-        .logout-btn {
-          background-color: #c92a2a;
-          color: white;
-          padding: 0.5rem 1rem;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
+        
+        /* Smooth page transitions */
+        .page-transition {
+          animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
       `}</style>
     </div>
