@@ -438,9 +438,14 @@ export default function Home() {
     const minPrice = Math.min(...data.map(d => d.price));
     const priceRange = maxPrice - minPrice;
 
-    // Se o range for muito pequeno, adiciona padding
-    const paddedMin = priceRange < maxPrice * 0.1 ? minPrice - maxPrice * 0.05 : minPrice;
-    const paddedMax = priceRange < maxPrice * 0.1 ? maxPrice + maxPrice * 0.05 : maxPrice;
+    // Se o range for muito pequeno (menos de 1% do preço máximo), força um range mínimo
+    const minRangePercent = 0.02; // 2% mínimo
+    const actualRange = priceRange < maxPrice * minRangePercent ? maxPrice * minRangePercent : priceRange;
+    
+    // Calcula padding baseado no range real ou mínimo
+    const padding = actualRange * 0.1; // 10% de padding
+    const paddedMin = minPrice - padding;
+    const paddedMax = maxPrice + padding;
     const paddedRange = paddedMax - paddedMin;
 
     const getY = (price) => 200 - ((price - paddedMin) / paddedRange) * 180;
