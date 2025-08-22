@@ -327,7 +327,7 @@ def scrape_pichau(driver, wait, query, wordlist, category):
         
     print(f"\n🔍 Searching on Pichau: {query}")
     base_url = "https://www.pichau.com.br"
-    url = f"{base_url}/busca?q={quote_plus(query)}"
+    url = f"{base_url}{query}"
     
     try:
         driver.get(url)
