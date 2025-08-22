@@ -39,5 +39,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-pages/scraper.py
-pages/db.csv
+telegram_bot

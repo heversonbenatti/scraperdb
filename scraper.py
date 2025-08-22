@@ -1,4 +1,5 @@
-import json
+import asyncio
+from telegram_bot.telegram_bot import TelegramPriceBot
 from urllib.parse import quote_plus
 import time
 import random
@@ -121,6 +122,20 @@ def normalize_price_pichau(price_text):
     except Exception as e:
         print(f"❌ Erro ao normalizar preço '{price_text}': {e}")
         return 0.0
+    
+def notify_price_drop_if_needed(product_name, old_price, new_price, website):
+    if new_price < old_price:  # Só notifica quedas
+        try:
+            bot = TelegramPriceBot()
+            message = f"🚨 QUEDA DE PREÇO!\n\n"
+            message += f"📱 {product_name}\n"
+            message += f"🏪 {website}\n"
+            message += f"💰 De R$ {old_price:.2f} para R$ {new_price:.2f}\n"
+            message += f"📉 Economia: R$ {old_price-new_price:.2f}"
+            
+            asyncio.run(bot.send_message(message))
+        except Exception as e:
+            print(f"Erro ao enviar notificação: {e}")
 
 def save_product(name, price, website, category, product_link, keywords_matched=None):
     if price > 10.0:
@@ -193,6 +208,17 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         percentage = (price_diff / last_price) * 100
                         print(f"📈 Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
                         
+                        # 🚨 TELEGRAM: Notificar mudança de preço (SÓ QUEDAS!)
+                        notify_price_drop_if_needed(
+                            product_name=name,
+                            old_price=last_price,
+                            new_price=current_price,
+                            website=website,
+                            category=category,
+                            product_link=product_link,
+                            keywords_matched=keywords_matched
+                        )
+                        
                     else:
                         # Preço igual - apenas atualizar last_checked_at e incrementar contador
                         current_check_count = last_price_result.check_count or 0
@@ -211,7 +237,7 @@ def save_product(name, price, website, category, product_link, keywords_matched=
         except Exception as e:
             print(f"🔥 Erro inesperado no save_product: {e}")
             import traceback
-            traceback.print_exc()  # Para debug mais detalhado
+            traceback.print_exc()
 
 def get_search_configs_with_keywords():
     """Get all active search configurations with their keyword groups"""
