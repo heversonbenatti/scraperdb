@@ -170,33 +170,38 @@ export default function Home() {
 
   const fetchPriceHistory = async (productId, interval = '6h') => {
     try {
-      let hours, limit;
+      let totalHours, intervalHours, expectedPoints;
 
-      // Definir período e limite baseado no intervalo
+      // Definir período total e intervalo entre pontos
       switch (interval) {
-        case '1h': // Últimas 24 horas, pontos de 1 em 1 hora
-          hours = 24;
-          limit = 24;
+        case '1h': // Intervalo de 1h, período de 24h
+          totalHours = 24;
+          intervalHours = 1;
+          expectedPoints = 24;
           break;
-        case '6h': // Últimos 6 dias, pontos de 6 em 6 horas  
-          hours = 144; // 6 dias * 24 horas
-          limit = 24; // 6 dias / 6 horas = 24 pontos
+        case '6h': // Intervalo de 6h, período de 6 dias
+          totalHours = 144; // 6 dias * 24 horas
+          intervalHours = 6;
+          expectedPoints = 24; // 144h / 6h = 24 pontos
           break;
-        case '1d': // Últimos 30 dias, pontos de 1 em 1 dia
-          hours = 720; // 30 dias * 24 horas
-          limit = 30;
+        case '1d': // Intervalo de 1 dia, período de 30 dias
+          totalHours = 720; // 30 dias * 24 horas
+          intervalHours = 24;
+          expectedPoints = 30; // 720h / 24h = 30 pontos
           break;
-        case '1w': // Últimos 3 meses, pontos de 1 em 1 semana
-          hours = 2160; // 90 dias * 24 horas
-          limit = 12; // 3 meses / 1 semana ≈ 12 pontos
+        case '1w': // Intervalo de 1 semana, período de 3 meses
+          totalHours = 2160; // 90 dias * 24 horas
+          intervalHours = 168; // 7 dias * 24 horas
+          expectedPoints = 12; // 2160h / 168h ≈ 12 pontos
           break;
         default:
-          hours = 144;
-          limit = 24;
+          totalHours = 144;
+          intervalHours = 6;
+          expectedPoints = 24;
       }
 
       const startDate = new Date();
-      startDate.setHours(startDate.getHours() - hours);
+      startDate.setHours(startDate.getHours() - totalHours);
 
       const { data } = await supabaseClient
         .from('prices')
@@ -204,74 +209,42 @@ export default function Home() {
         .eq('product_id', productId)
         .gte('price_changed_at', startDate.toISOString())
         .order('price_changed_at', { ascending: true })
-        .limit(limit);
+        .limit(expectedPoints * 2); // Busca mais dados para filtrar depois
 
-      setPriceHistory(data || []);
+      // Se não temos dados suficientes, retorna o que temos
+      if (!data || data.length === 0) {
+        setPriceHistory([]);
+        return;
+      }
+
+      // Se temos poucos pontos, retorna todos
+      if (data.length <= expectedPoints) {
+        setPriceHistory(data);
+        return;
+      }
+
+      // Filtrar dados para ter aproximadamente o número esperado de pontos
+      // distribuídos uniformemente ao longo do período
+      const filteredData = [];
+      const totalDataPoints = data.length;
+      const step = Math.max(1, Math.floor(totalDataPoints / expectedPoints));
+
+      for (let i = 0; i < totalDataPoints; i += step) {
+        filteredData.push(data[i]);
+      }
+
+      // Sempre incluir o último ponto se não estiver já incluído
+      const lastPoint = data[data.length - 1];
+      const lastFilteredPoint = filteredData[filteredData.length - 1];
+      if (lastPoint.price_changed_at !== lastFilteredPoint.price_changed_at) {
+        filteredData.push(lastPoint);
+      }
+
+      setPriceHistory(filteredData);
     } catch (error) {
       console.error('Error fetching price history:', error);
       setPriceHistory([]);
     }
-  };
-
-  const showPriceModal = async (product) => {
-    setSelectedProduct(product);
-    setChartInterval('6h'); // Reset para padrão
-    await fetchPriceHistory(product.id, '6h');
-  };
-
-  const handleIntervalChange = async (newInterval) => {
-    setChartInterval(newInterval);
-    if (selectedProduct) {
-      await fetchPriceHistory(selectedProduct.id, newInterval);
-    }
-  };
-
-  const getSortedProducts = useMemo(() => {
-    let sorted = [...products];
-
-    if (searchTerm) {
-      sorted = sorted.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    if (selectedCategories.length > 0) {
-      sorted = sorted.filter(p => selectedCategories.includes(p.category));
-    }
-
-    if (selectedWebsites.length > 0) {
-      sorted = sorted.filter(p => selectedWebsites.includes(p.website));
-    }
-
-    sorted.sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === 'price') {
-        comparison = a.currentPrice - b.currentPrice;
-      } else if (sortBy === 'category') {
-        comparison = a.category.localeCompare(b.category);
-      } else if (sortBy === 'drop') {
-        comparison = a.priceChange - b.priceChange;
-      }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
-    return sorted;
-  }, [products, searchTerm, selectedCategories, selectedWebsites, sortBy, sortOrder]);
-
-  const calculateBuildTotal = (build) => {
-    if (!build.categories || !products.length) return 0;
-
-    return build.categories.reduce((total, category) => {
-      if (build.product_overrides?.[category]) {
-        const overrideProduct = products.find(p => p.id === build.product_overrides[category]);
-        return total + (overrideProduct?.currentPrice || 0);
-      }
-      const lowestInCategory = products
-        .filter(p => p.category === category)
-        .sort((a, b) => a.currentPrice - b.currentPrice)[0];
-      return total + (lowestInCategory?.currentPrice || 0);
-    }, 0);
   };
 
   const getBuildProduct = (build, category) => {
@@ -443,7 +416,7 @@ export default function Home() {
     // Se o range for muito pequeno (menos de 1% do preço máximo), força um range mínimo
     const minRangePercent = 0.02; // 2% mínimo
     const actualRange = priceRange < maxPrice * minRangePercent ? maxPrice * minRangePercent : priceRange;
-    
+
     // Calcula padding baseado no range real ou mínimo
     const padding = actualRange * 0.1; // 10% de padding
     const paddedMin = minPrice - padding;
@@ -1204,13 +1177,15 @@ export default function Home() {
 
             {/* Seletor de Intervalo */}
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
-              <p className="text-sm text-gray-400 mb-2">Intervalo de tempo:</p>
+              <p className="text-sm text-gray-400 mb-2">
+                Intervalo de tempo: <span className="text-gray-300">intervalo(período total)</span>
+              </p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  { value: '1h', label: '1 hora (24h)', desc: 'Últimas 24 horas' },
-                  { value: '6h', label: '6 horas (6 dias)', desc: 'Últimos 6 dias' },
-                  { value: '1d', label: '1 dia (30 dias)', desc: 'Últimos 30 dias' },
-                  { value: '1w', label: '1 semana (3 meses)', desc: 'Últimos 3 meses' }
+                  { value: '1h', label: '1 hora (24h)', desc: 'Pontos a cada 1 hora, últimas 24 horas' },
+                  { value: '6h', label: '6 horas (6 dias)', desc: 'Pontos a cada 6 horas, últimos 6 dias' },
+                  { value: '1d', label: '1 dia (30 dias)', desc: 'Pontos a cada 1 dia, últimos 30 dias' },
+                  { value: '1w', label: '1 semana (3 meses)', desc: 'Pontos a cada 1 semana, últimos 3 meses' }
                 ].map(interval => (
                   <button
                     key={interval.value}
