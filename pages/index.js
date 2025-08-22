@@ -247,6 +247,21 @@ export default function Home() {
     }
   };
 
+  const calculateBuildTotal = (build) => {
+    if (!build.categories || !products.length) return 0;
+
+    return build.categories.reduce((total, category) => {
+      if (build.product_overrides?.[category]) {
+        const overrideProduct = products.find(p => p.id === build.product_overrides[category]);
+        return total + (overrideProduct?.currentPrice || 0);
+      }
+      const lowestInCategory = products
+        .filter(p => p.category === category)
+        .sort((a, b) => a.currentPrice - b.currentPrice)[0];
+      return total + (lowestInCategory?.currentPrice || 0);
+    }, 0);
+  };
+
   const getBuildProduct = (build, category) => {
     if (build.product_overrides?.[category]) {
       return products.find(p => p.id === build.product_overrides[category]);
