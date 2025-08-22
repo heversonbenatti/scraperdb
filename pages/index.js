@@ -64,24 +64,15 @@ export default function Home() {
 
         const productsWithPrices = await Promise.all(
           (productsData || []).map(async (product) => {
-            // Buscar preço atual (último registro por last_checked_at)
-            const { data: currentPriceData } = await supabaseClient
+            const { data: pricesData } = await supabaseClient
               .from('prices')
-              .select('price, last_checked_at, check_count')
+              .select('price, collected_at')
               .eq('product_id', product.id)
-              .order('last_checked_at', { ascending: false })
-              .limit(1);
-
-            // Buscar preço anterior (penúltima mudança real de preço)
-            const { data: previousPriceData } = await supabaseClient
-              .from('prices')
-              .select('price, price_changed_at')
-              .eq('product_id', product.id)
-              .order('price_changed_at', { ascending: false })
+              .order('collected_at', { ascending: false })
               .limit(2);
 
-            const currentPrice = currentPriceData?.[0]?.price || 0;
-            const previousPrice = previousPriceData?.[1]?.price || currentPrice;
+            const currentPrice = pricesData?.[0]?.price || 0;
+            const previousPrice = pricesData?.[1]?.price || currentPrice;
             const priceChange = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice * 100) : 0;
 
             return {
@@ -89,8 +80,7 @@ export default function Home() {
               currentPrice,
               previousPrice,
               priceChange,
-              lastUpdated: currentPriceData?.[0]?.last_checked_at,
-              checkCount: currentPriceData?.[0]?.check_count || 0
+              lastUpdated: pricesData?.[0]?.collected_at
             };
           })
         );
@@ -140,18 +130,18 @@ export default function Home() {
 
     checkSession();
 
-    // Atualizado para escutar mudanças na nova estrutura
     const pricesSubscription = supabaseClient
       .channel('price-changes')
       .on('postgres_changes', {
-        event: '*',
+        event: 'INSERT',
         schema: 'public',
         table: 'prices'
       }, payload => {
-        // Recarregar dados do produto quando houver mudança
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          refreshProductData(payload.new.product_id);
-        }
+        setProducts(prev => prev.map(product =>
+          product.id === payload.new.product_id
+            ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.collected_at }
+            : product
+        ));
       })
       .subscribe();
 
@@ -159,46 +149,6 @@ export default function Home() {
       supabaseClient.removeChannel(pricesSubscription);
     };
   }, []);
-
-  // Função para recarregar dados de um produto específico
-  const refreshProductData = async (productId) => {
-    try {
-      const { data: currentPriceData } = await supabaseClient
-        .from('prices')
-        .select('price, last_checked_at, check_count')
-        .eq('product_id', productId)
-        .order('last_checked_at', { ascending: false })
-        .limit(1);
-
-      const { data: previousPriceData } = await supabaseClient
-        .from('prices')
-        .select('price')
-        .eq('product_id', productId)
-        .order('price_changed_at', { ascending: false })
-        .limit(2);
-
-      if (currentPriceData?.[0]) {
-        const currentPrice = currentPriceData[0].price;
-        const previousPrice = previousPriceData?.[1]?.price || currentPrice;
-        const priceChange = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice * 100) : 0;
-
-        setProducts(prev => prev.map(product =>
-          product.id === productId
-            ? {
-                ...product,
-                currentPrice,
-                previousPrice,
-                priceChange,
-                lastUpdated: currentPriceData[0].last_checked_at,
-                checkCount: currentPriceData[0].check_count || 0
-              }
-            : product
-        ));
-      }
-    } catch (error) {
-      console.error('Error refreshing product data:', error);
-    }
-  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -221,56 +171,49 @@ export default function Home() {
     try {
       let hours, limit;
 
+      // Definir período e limite baseado no intervalo
       switch (interval) {
-        case '1h':
+        case '1h': // Últimas 24 horas, pontos de 1 em 1 hora
           hours = 24;
-          limit = 50;
+          limit = 24;
           break;
-        case '6h':
-          hours = 144; // 6 dias
-          limit = 50;
+        case '6h': // Últimos 6 dias, pontos de 6 em 6 horas  
+          hours = 144; // 6 dias * 24 horas
+          limit = 24; // 6 dias / 6 horas = 24 pontos
           break;
-        case '1d':
-          hours = 720; // 30 dias
-          limit = 50;
+        case '1d': // Últimos 30 dias, pontos de 1 em 1 dia
+          hours = 720; // 30 dias * 24 horas
+          limit = 30;
           break;
-        case '1w':
-          hours = 2160; // 90 dias
-          limit = 50;
+        case '1w': // Últimos 3 meses, pontos de 1 em 1 semana
+          hours = 2160; // 90 dias * 24 horas
+          limit = 12; // 3 meses / 1 semana ≈ 12 pontos
           break;
         default:
           hours = 144;
-          limit = 50;
+          limit = 24;
       }
 
       const startDate = new Date();
       startDate.setHours(startDate.getHours() - hours);
 
-      // Buscar apenas registros onde houve mudança real de preço
       const { data } = await supabaseClient
         .from('prices')
-        .select('price, price_changed_at, check_count')
+        .select('price, collected_at')
         .eq('product_id', productId)
-        .gte('price_changed_at', startDate.toISOString())
-        .order('price_changed_at', { ascending: true })
+        .gte('collected_at', startDate.toISOString())
+        .order('collected_at', { ascending: true })
         .limit(limit);
 
-      // Converter price_changed_at para collected_at para compatibilidade com o gráfico
-      const formattedData = (data || []).map(item => ({
-        ...item,
-        collected_at: item.price_changed_at // Usar price_changed_at como collected_at
-      }));
-
-      setPriceHistory(formattedData);
+      setPriceHistory(data || []);
     } catch (error) {
-      console.error('Error fetching price history:', error);
       setPriceHistory([]);
     }
   };
 
   const showPriceModal = async (product) => {
     setSelectedProduct(product);
-    setChartInterval('6h');
+    setChartInterval('6h'); // Reset para padrão
     await fetchPriceHistory(product.id, '6h');
   };
 
@@ -481,7 +424,7 @@ export default function Home() {
     [products]
   );
 
-  // Componente do gráfico (mantido igual)
+  // Componente do gráfico melhorado
   const PriceChart = ({ data, className = "" }) => {
     if (!data || data.length === 0) {
       return (
@@ -495,10 +438,12 @@ export default function Home() {
     const minPrice = Math.min(...data.map(d => d.price));
     const priceRange = maxPrice - minPrice;
 
-    const minRangePercent = 0.02;
+    // Se o range for muito pequeno (menos de 1% do preço máximo), força um range mínimo
+    const minRangePercent = 0.02; // 2% mínimo
     const actualRange = priceRange < maxPrice * minRangePercent ? maxPrice * minRangePercent : priceRange;
     
-    const padding = actualRange * 0.1;
+    // Calcula padding baseado no range real ou mínimo
+    const padding = actualRange * 0.1; // 10% de padding
     const paddedMin = minPrice - padding;
     const paddedMax = maxPrice + padding;
     const paddedRange = paddedMax - paddedMin;
@@ -506,6 +451,7 @@ export default function Home() {
     const getY = (price) => 200 - ((price - paddedMin) / paddedRange) * 180;
     const getX = (index) => (index / (data.length - 1)) * 380 + 10;
 
+    // Criar path para linha curva
     const createPath = () => {
       if (data.length === 1) {
         const x = getX(0);
@@ -521,6 +467,7 @@ export default function Home() {
         const prevX = getX(i - 1);
         const prevY = getY(data[i - 1].price);
 
+        // Criar curva suave usando quadratic bezier
         const cpx = prevX + (x - prevX) / 2;
         path += ` Q ${cpx} ${prevY} ${x} ${y}`;
       }
@@ -528,6 +475,7 @@ export default function Home() {
       return path;
     };
 
+    // Criar área sob a curva
     const createAreaPath = () => {
       if (data.length === 0) return '';
 
@@ -565,6 +513,7 @@ export default function Home() {
             </filter>
           </defs>
 
+          {/* Grid lines */}
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgb(75, 85, 99)" strokeWidth="0.5" opacity="0.3" />
@@ -572,11 +521,13 @@ export default function Home() {
           </defs>
           <rect width="100%" height="200" fill="url(#grid)" />
 
+          {/* Área sob a curva */}
           <path
             d={createAreaPath()}
             fill="url(#priceGradient)"
           />
 
+          {/* Linha principal */}
           <path
             d={createPath()}
             fill="none"
@@ -586,6 +537,7 @@ export default function Home() {
             className="drop-shadow-lg"
           />
 
+          {/* Pontos de dados */}
           {data.map((entry, idx) => {
             const x = getX(idx);
             const y = getY(entry.price);
@@ -603,7 +555,6 @@ export default function Home() {
                 >
                   <title>
                     R$ {entry.price.toFixed(2)} - {new Date(entry.collected_at).toLocaleDateString('pt-BR')}
-                    {entry.check_count && ` (${entry.check_count} verificações)`}
                   </title>
                 </circle>
               </g>
@@ -611,6 +562,7 @@ export default function Home() {
           })}
         </svg>
 
+        {/* Estatísticas */}
         <div className="grid grid-cols-3 gap-4 mt-4 text-center text-sm">
           <div>
             <p className="text-gray-400">Menor</p>
@@ -693,7 +645,7 @@ export default function Home() {
           <div className="space-y-8 animate-fade-in">
             <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
               <h2 className="text-2xl font-bold mb-6 flex items-center">
-                <span className="mr-2">📉</span> Maiores Quedas de Preço (Últimas mudanças)
+                <span className="mr-2">📉</span> Maiores Quedas de Preço (24h)
               </h2>
               <div className="space-y-3">
                 {topDrops.map((product, idx) => (
@@ -704,9 +656,6 @@ export default function Home() {
                         <div>
                           <p className="font-medium">{product.name}</p>
                           <p className="text-sm text-gray-400">{product.category} • {product.website}</p>
-                          {product.checkCount > 0 && (
-                            <p className="text-xs text-gray-500">Verificado {product.checkCount}x</p>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center space-x-4">
@@ -811,17 +760,13 @@ export default function Home() {
                             <div className="flex-1">
                               <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
                               <p className="text-sm font-medium truncate max-w-[200px]">{product.name}</p>
-                              <div className="flex items-center space-x-2">
-                                <p className="text-xs text-gray-500 capitalize">{product.website}</p>
-                                {product.checkCount > 0 && (
-                                  <span className="text-xs bg-blue-600 px-1 rounded">{product.checkCount}x</span>
-                                )}
-                              </div>
+                              <p className="text-xs text-gray-500 capitalize">{product.website}</p>
                             </div>
                             <div className="flex items-center space-x-2">
                               <span className="font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</span>
                               {isOverride && <span className="text-xs text-yellow-400">✏️</span>}
 
+                              {/* Botão de gráfico */}
                               <button
                                 onClick={() => showPriceModal(product)}
                                 className="text-gray-400 hover:text-white transition-colors"
@@ -830,6 +775,7 @@ export default function Home() {
                                 📊
                               </button>
 
+                              {/* Botão de URL */}
                               <a
                                 href={product.product_link}
                                 target="_blank"
@@ -840,6 +786,7 @@ export default function Home() {
                                 🔗
                               </a>
 
+                              {/* Botão de configuração */}
                               <button
                                 onClick={() => setBuildProductModal({ buildId: build.id, category, currentProduct: product })}
                                 className="text-gray-400 hover:text-white transition-colors"
@@ -850,10 +797,11 @@ export default function Home() {
                             </div>
                           </div>
 
+                          {/* Mostrar mudança de preço se disponível */}
                           {product.priceChange !== 0 && (
                             <div className="mt-2 flex items-center justify-between">
                               <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-400">Variação:</span>
+                                <span className="text-xs text-gray-400">Variação 24h:</span>
                                 <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
                                   {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
                                 </span>
@@ -919,6 +867,7 @@ export default function Home() {
               </div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Filtro por categoria */}
                 <div>
                   <p className="text-sm text-gray-400 mb-2">Filtrar por categoria:</p>
                   <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
@@ -950,6 +899,7 @@ export default function Home() {
                   )}
                 </div>
 
+                {/* Filtro por website */}
                 <div>
                   <p className="text-sm text-gray-400 mb-2">Filtrar por website:</p>
                   <div className="flex flex-wrap gap-2">
@@ -982,6 +932,7 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Resumo dos filtros */}
               {(selectedCategories.length > 0 || selectedWebsites.length > 0 || searchTerm) && (
                 <div className="mt-4 p-3 bg-gray-700 rounded-md">
                   <p className="text-sm text-gray-300">
@@ -1011,12 +962,7 @@ export default function Home() {
                     <span className="text-xs bg-purple-600 px-2 py-1 rounded">
                       {product.category.replace('_', ' ').toUpperCase()}
                     </span>
-                    <div className="flex items-center space-x-1">
-                      <span className="text-xs text-gray-400 capitalize">{product.website}</span>
-                      {product.checkCount > 0 && (
-                        <span className="text-xs bg-blue-600 px-1 rounded">{product.checkCount}x</span>
-                      )}
-                    </div>
+                    <span className="text-xs text-gray-400 capitalize">{product.website}</span>
                   </div>
                   <h4 className="text-sm font-medium mb-3 line-clamp-2 max-w-[220px] truncate">{product.name}</h4>
                   <div className="flex justify-between items-end">
@@ -1236,7 +1182,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Price History Modal */}
+      {/* Price History Modal - Melhorado com Intervalos */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-5xl max-h-[95vh] overflow-auto animate-slide-up">
@@ -1245,9 +1191,6 @@ export default function Home() {
                 <h3 className="text-xl font-bold">Histórico de Preços</h3>
                 <h4 className="text-lg text-gray-300 mt-1">{selectedProduct.name}</h4>
                 <p className="text-sm text-gray-400">{selectedProduct.category} • {selectedProduct.website}</p>
-                {selectedProduct.checkCount > 0 && (
-                  <p className="text-xs text-blue-400">Verificado {selectedProduct.checkCount} vezes</p>
-                )}
               </div>
               <button
                 onClick={() => setSelectedProduct(null)}
@@ -1257,6 +1200,7 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Seletor de Intervalo */}
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
               <p className="text-sm text-gray-400 mb-2">Intervalo de tempo:</p>
               <div className="flex flex-wrap gap-2">
@@ -1300,7 +1244,7 @@ export default function Home() {
                   }
                 </div>
                 <div className="mt-1">
-                  Mostrando: {priceHistory.length} mudança(s) de preço
+                  Mostrando: {priceHistory.length} ponto(s) de dados
                 </div>
               </div>
             </div>
@@ -1344,12 +1288,7 @@ export default function Home() {
                       <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{product.name}</p>
                       <div className="flex justify-between items-center">
                         <span className="text-purple-400 font-bold">R$ {product.currentPrice.toFixed(2)}</span>
-                        <div className="flex items-center space-x-1">
-                          <span className="text-xs text-gray-400">{product.website}</span>
-                          {product.checkCount > 0 && (
-                            <span className="text-xs bg-blue-600 px-1 rounded">{product.checkCount}x</span>
-                          )}
-                        </div>
+                        <span className="text-xs text-gray-400">{product.website}</span>
                       </div>
                     </div>
                   ))}
