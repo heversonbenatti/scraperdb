@@ -213,10 +213,7 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                             product_name=name,
                             old_price=last_price,
                             new_price=current_price,
-                            website=website,
-                            category=category,
-                            product_link=product_link,
-                            keywords_matched=keywords_matched
+                            website=website
                         )
                         
                     else:
