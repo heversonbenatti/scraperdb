@@ -17,7 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.firefox import GeckoDriverManager
 
-from sqlalchemy import create_engine, Table, Column, Integer, String, Numeric, ForeignKey, MetaData, select, Boolean
+from sqlalchemy import create_engine, Table, Column, Integer, String, Numeric, ForeignKey, MetaData, select, Boolean, DateTime
 from datetime import datetime, timedelta
 
 load_dotenv()
@@ -39,7 +39,10 @@ prices = Table("prices", metadata,
     Column("id", Integer, primary_key=True),
     Column("product_id", Integer, ForeignKey("products.id"), nullable=False),
     Column("price", Numeric, nullable=False),
-    Column("collected_at", String, default=datetime.now().isoformat),
+    Column("collected_at", DateTime, default=datetime.now),
+    Column("last_checked_at", DateTime, default=datetime.now),
+    Column("price_changed_at", DateTime, default=datetime.now),
+    Column("check_count", Integer, default=1),
 )
 
 search_configs = Table("search_configs", metadata,
@@ -48,14 +51,14 @@ search_configs = Table("search_configs", metadata,
     Column("category", String, nullable=False),
     Column("website", String, nullable=False),
     Column("is_active", Boolean, default=True),
-    Column("created_at", String, default=datetime.now().isoformat),
+    Column("created_at", DateTime, default=datetime.now),
 )
 
 keyword_groups = Table("keyword_groups", metadata,
     Column("id", Integer, primary_key=True),
     Column("search_config_id", Integer, ForeignKey("search_configs.id", ondelete="CASCADE"), nullable=False),
     Column("keywords", String, nullable=False),  # Comma-separated keywords within a group
-    Column("created_at", String, default=datetime.now().isoformat),
+    Column("created_at", DateTime, default=datetime.now),
 )
 
 gecko_path = GeckoDriverManager().install()
@@ -143,55 +146,32 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                     print(f"👉 Produto novo inserido com id={product_id}")
                 
                 # 2. Buscar último preço registrado para este produto
-                # Check if check_count column exists in the table
-                try:
-                    last_price_query = select(
-                        prices.c.price,
-                        prices.c.check_count,
-                        prices.c.id,
-                        prices.c.last_checked_at
-                    ).where(
-                        prices.c.product_id == product_id
-                    ).order_by(
-                        prices.c.last_checked_at.desc()
-                    ).limit(1)
-                except AttributeError:
-                    # If check_count doesn't exist, query without it
-                    last_price_query = select(
-                        prices.c.price,
-                        prices.c.id,
-                        prices.c.last_checked_at
-                    ).where(
-                        prices.c.product_id == product_id
-                    ).order_by(
-                        prices.c.last_checked_at.desc()
-                    ).limit(1)
+                last_price_query = select(
+                    prices.c.price,
+                    prices.c.check_count,
+                    prices.c.id,
+                    prices.c.last_checked_at
+                ).where(
+                    prices.c.product_id == product_id
+                ).order_by(
+                    prices.c.last_checked_at.desc()
+                ).limit(1)
                 
                 last_price_result = conn.execute(last_price_query).first()
                 
                 current_time = datetime.now()
-                current_time_iso = current_time.isoformat()
                 
                 # 3. Decidir se inserir novo registro ou atualizar existente
                 if last_price_result is None:
                     # Primeiro preço para este produto
-                    insert_values = {
-                        'product_id': product_id,
-                        'price': price,
-                        'collected_at': current_time,
-                        'last_checked_at': current_time,
-                        'price_changed_at': current_time
-                    }
-                    
-                    # Only add check_count if the column exists
-                    try:
-                        # Test if check_count column exists
-                        _ = prices.c.check_count
-                        insert_values['check_count'] = 1
-                    except AttributeError:
-                        pass
-                    
-                    conn.execute(prices.insert().values(**insert_values))
+                    conn.execute(prices.insert().values(
+                        product_id=product_id,
+                        price=price,
+                        collected_at=current_time,
+                        last_checked_at=current_time,
+                        price_changed_at=current_time,
+                        check_count=1
+                    ))
                     print(f"✅ Primeiro preço inserido: R$ {price}")
                     
                 else:
@@ -201,48 +181,32 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                     
                     if abs(last_price - current_price) > 0.01:  # Mudança significativa (> R$ 0,01)
                         # Preço mudou - inserir novo registro
-                        insert_values = {
-                            'product_id': product_id,
-                            'price': current_price,
-                            'collected_at': current_time,
-                            'last_checked_at': current_time,
-                            'price_changed_at': current_time
-                        }
-                        
-                        # Only add check_count if the column exists
-                        try:
-                            _ = prices.c.check_count
-                            insert_values['check_count'] = 1
-                        except AttributeError:
-                            pass
-                        
-                        conn.execute(prices.insert().values(**insert_values))
+                        conn.execute(prices.insert().values(
+                            product_id=product_id,
+                            price=current_price,
+                            collected_at=current_time,
+                            last_checked_at=current_time,
+                            price_changed_at=current_time,
+                            check_count=1
+                        ))
                         price_diff = current_price - last_price
                         percentage = (price_diff / last_price) * 100
                         print(f"📈 Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
                         
                     else:
                         # Preço igual - apenas atualizar last_checked_at e incrementar contador
-                        update_values = {
-                            'last_checked_at': current_time
-                        }
-                        
-                        # Only update check_count if the column exists
-                        try:
-                            _ = prices.c.check_count
-                            current_check_count = getattr(last_price_result, 'check_count', 0) or 0
-                            new_check_count = current_check_count + 1
-                            update_values['check_count'] = new_check_count
-                            check_info = f" (verificação #{new_check_count})"
-                        except AttributeError:
-                            check_info = ""
+                        current_check_count = last_price_result.check_count or 0
+                        new_check_count = current_check_count + 1
                         
                         conn.execute(
                             prices.update()
                             .where(prices.c.id == last_price_result.id)
-                            .values(**update_values)
+                            .values(
+                                last_checked_at=current_time,
+                                check_count=new_check_count
+                            )
                         )
-                        print(f"🔄 Preço mantido R$ {current_price}{check_info}")
+                        print(f"🔄 Preço mantido R$ {current_price} (verificação #{new_check_count})")
 
         except Exception as e:
             print(f"🔥 Erro inesperado no save_product: {e}")

@@ -14,6 +14,9 @@ prices,id,integer,null,NO,nextval('prices_id_seq'::regclass),PRIMARY KEY,,1
 prices,product_id,integer,null,NO,null,,FOREIGN KEY -> products.id,2
 prices,price,numeric,null,NO,null,,,3
 prices,collected_at,timestamp with time zone,null,YES,now(),,,4
+prices,last_checked_at,timestamp with time zone,null,YES,now(),,,5
+prices,price_changed_at,timestamp with time zone,null,YES,now(),,,6
+prices,check_count,integer,null,YES,1,,,7
 products,id,integer,null,NO,nextval('products_id_seq'::regclass),PRIMARY KEY,,1
 products,name,character varying,500,NO,null,,,2
 products,website,character varying,100,NO,null,,,3

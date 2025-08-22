@@ -64,11 +64,12 @@ export default function Home() {
 
         const productsWithPrices = await Promise.all(
           (productsData || []).map(async (product) => {
+            // Get the last two distinct prices to calculate price change
             const { data: pricesData } = await supabaseClient
               .from('prices')
-              .select('price, collected_at')
+              .select('price, collected_at, price_changed_at, last_checked_at')
               .eq('product_id', product.id)
-              .order('collected_at', { ascending: false })
+              .order('price_changed_at', { ascending: false })
               .limit(2);
 
             const currentPrice = pricesData?.[0]?.price || 0;
@@ -80,7 +81,7 @@ export default function Home() {
               currentPrice,
               previousPrice,
               priceChange,
-              lastUpdated: pricesData?.[0]?.collected_at
+              lastUpdated: pricesData?.[0]?.last_checked_at || pricesData?.[0]?.collected_at
             };
           })
         );
@@ -139,7 +140,7 @@ export default function Home() {
       }, payload => {
         setProducts(prev => prev.map(product =>
           product.id === payload.new.product_id
-            ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.collected_at }
+            ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.last_checked_at || payload.new.collected_at }
             : product
         ));
       })
@@ -199,14 +200,15 @@ export default function Home() {
 
       const { data } = await supabaseClient
         .from('prices')
-        .select('price, collected_at')
+        .select('price, collected_at, price_changed_at')
         .eq('product_id', productId)
-        .gte('collected_at', startDate.toISOString())
-        .order('collected_at', { ascending: true })
+        .gte('price_changed_at', startDate.toISOString())
+        .order('price_changed_at', { ascending: true })
         .limit(limit);
 
       setPriceHistory(data || []);
     } catch (error) {
+      console.error('Error fetching price history:', error);
       setPriceHistory([]);
     }
   };
@@ -554,7 +556,7 @@ export default function Home() {
                   style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
                 >
                   <title>
-                    R$ {entry.price.toFixed(2)} - {new Date(entry.collected_at).toLocaleDateString('pt-BR')}
+                    R$ {entry.price.toFixed(2)} - {new Date(entry.price_changed_at || entry.collected_at).toLocaleDateString('pt-BR')}
                   </title>
                 </circle>
               </g>
