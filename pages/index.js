@@ -247,6 +247,52 @@ export default function Home() {
     }
   };
 
+  const showPriceModal = async (product) => {
+    setSelectedProduct(product);
+    setChartInterval('6h'); // Reset para padrão
+    await fetchPriceHistory(product.id, '6h');
+  };
+
+  const handleIntervalChange = async (newInterval) => {
+    setChartInterval(newInterval);
+    if (selectedProduct) {
+      await fetchPriceHistory(selectedProduct.id, newInterval);
+    }
+  };
+
+  const getSortedProducts = useMemo(() => {
+    let sorted = [...products];
+
+    if (searchTerm) {
+      sorted = sorted.filter(p =>
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.category.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    if (selectedCategories.length > 0) {
+      sorted = sorted.filter(p => selectedCategories.includes(p.category));
+    }
+
+    if (selectedWebsites.length > 0) {
+      sorted = sorted.filter(p => selectedWebsites.includes(p.website));
+    }
+
+    sorted.sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'price') {
+        comparison = a.currentPrice - b.currentPrice;
+      } else if (sortBy === 'category') {
+        comparison = a.category.localeCompare(b.category);
+      } else if (sortBy === 'drop') {
+        comparison = a.priceChange - b.priceChange;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return sorted;
+  }, [products, searchTerm, selectedCategories, selectedWebsites, sortBy, sortOrder]);
+
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
 
