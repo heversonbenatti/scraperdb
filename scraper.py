@@ -194,6 +194,13 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                     last_price = float(last_price_result.price)
                     current_price = float(price)
                     
+                    # Verificar se o último registro é da busca atual (últimos 5 minutos)
+                    last_checked = last_price_result.last_checked_at
+                    if last_checked.tzinfo is not None:
+                        last_checked = last_checked.replace(tzinfo=None)
+                    time_diff = current_time - last_checked
+                    is_same_search = time_diff.total_seconds() < 300  # 5 minutos
+                    
                     if abs(last_price - current_price) > 0.01:  # Mudança significativa (> R$ 0,01)
                         # Preço mudou - inserir novo registro
                         conn.execute(prices.insert().values(
@@ -208,13 +215,16 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         percentage = (price_diff / last_price) * 100
                         print(f"📈 Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
                         
-                        # 🚨 TELEGRAM: Notificar mudança de preço (SÓ QUEDAS!)
-                        notify_price_drop_if_needed(
-                            product_name=name,
-                            old_price=last_price,
-                            new_price=current_price,
-                            website=website
-                        )
+                        # 🚨 TELEGRAM: Só notifica se NÃO for da mesma busca
+                        if not is_same_search:
+                            notify_price_drop_if_needed(
+                                product_name=name,
+                                old_price=last_price,
+                                new_price=current_price,
+                                website=website
+                            )
+                        else:
+                            print(f"💡 Mudança na mesma busca - notificação ignorada")
                         
                     else:
                         # Preço igual - apenas atualizar last_checked_at e incrementar contador
