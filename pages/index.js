@@ -30,7 +30,8 @@ export default function Home() {
     name: '',
     categories: [],
     auto_refresh: true,
-    product_overrides: {}
+    product_overrides: {},
+    product_quantities: {} // NOVO: armazenar quantidades por categoria
   });
 
   const [newSearch, setNewSearch] = useState({
@@ -297,15 +298,40 @@ export default function Home() {
     if (!build.categories || !products.length) return 0;
 
     return build.categories.reduce((total, category) => {
+      // Buscar a quantidade para esta categoria (padrão = 1)
+      const quantity = build.product_quantities?.[category] || 1;
+
       if (build.product_overrides?.[category]) {
         const overrideProduct = products.find(p => p.id === build.product_overrides[category]);
-        return total + (overrideProduct?.currentPrice || 0);
+        return total + (overrideProduct?.currentPrice || 0) * quantity;
       }
       const lowestInCategory = products
         .filter(p => p.category === category)
         .sort((a, b) => a.currentPrice - b.currentPrice)[0];
-      return total + (lowestInCategory?.currentPrice || 0);
+      return total + (lowestInCategory?.currentPrice || 0) * quantity;
     }, 0);
+  };
+
+  const updateProductQuantity = async (buildId, category, newQuantity) => {
+    const build = builds.find(b => b.id === buildId);
+    const newQuantities = {
+      ...build.product_quantities,
+      [category]: Math.max(1, newQuantity) // Mínimo 1
+    };
+
+    await supabaseClient
+      .from('builds')
+      .update({
+        product_quantities: newQuantities,
+        auto_refresh: false
+      })
+      .eq('id', buildId);
+
+    setBuilds(prev => prev.map(b =>
+      b.id === buildId
+        ? { ...b, product_quantities: newQuantities, auto_refresh: false }
+        : b
+    ));
   };
 
   const getBuildProduct = (build, category) => {
@@ -359,15 +385,51 @@ export default function Home() {
   const createBuild = async () => {
     if (!newBuild.name || newBuild.categories.length === 0) return;
 
+    // Inicializar quantities com 1 para cada categoria
+    const initialQuantities = {};
+    newBuild.categories.forEach(category => {
+      initialQuantities[category] = 1;
+    });
+
+    const buildToInsert = {
+      ...newBuild,
+      product_quantities: initialQuantities
+    };
+
     const { error } = await supabaseClient
       .from('builds')
-      .insert([newBuild]);
+      .insert([buildToInsert]);
 
     if (!error) {
-      setNewBuild({ name: '', categories: [], auto_refresh: true, product_overrides: {} });
+      setNewBuild({
+        name: '',
+        categories: [],
+        auto_refresh: true,
+        product_overrides: {},
+        product_quantities: {}
+      });
       window.location.reload();
     }
   };
+
+  const QuantityControl = ({ quantity, onIncrease, onDecrease }) => (
+    <div className="flex items-center space-x-2 bg-gray-600 rounded-md">
+      <button
+        onClick={onDecrease}
+        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-l-md transition-colors"
+        disabled={quantity <= 1}
+      >
+        −
+      </button>
+      <span className="w-8 text-center text-sm font-medium">{quantity}</span>
+      <button
+        onClick={onIncrease}
+        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-r-md transition-colors"
+      >
+        +
+      </button>
+    </div>
+  );
 
   const deleteBuild = async (id) => {
     if (confirm('Remover esta build?')) {
@@ -789,6 +851,7 @@ export default function Home() {
                     {build.categories.map(category => {
                       const product = getBuildProduct(build, category);
                       const isOverride = build.product_overrides?.[category];
+                      const quantity = build.product_quantities?.[category] || 1; // NOVO
 
                       return product ? (
                         <div key={category} className="bg-gray-700 rounded p-3">
@@ -799,7 +862,16 @@ export default function Home() {
                               <p className="text-xs text-gray-500 capitalize">{product.website}</p>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <span className="font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</span>
+                              <div className="text-right">
+                                <span className="font-bold text-purple-400">
+                                  R$ {(product.currentPrice * quantity).toFixed(2)}
+                                </span>
+                                {quantity > 1 && (
+                                  <p className="text-xs text-gray-400">
+                                    {quantity}x R$ {product.currentPrice.toFixed(2)}
+                                  </p>
+                                )}
+                              </div>
                               {isOverride && <span className="text-xs text-yellow-400">✏️</span>}
 
                               {/* Botão de gráfico */}
@@ -832,23 +904,34 @@ export default function Home() {
                               </button>
                             </div>
                           </div>
-
-                          {/* Mostrar mudança de preço se disponível */}
-                          {product.priceChange !== 0 && (
-                            <div className="mt-2 flex items-center justify-between">
-                              <div className="flex items-center space-x-2">
-                                <span className="text-xs text-gray-400">Variação 24h:</span>
-                                <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                  {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
-                                </span>
-                              </div>
-                              {product.previousPrice && product.previousPrice !== product.currentPrice && (
-                                <span className="text-xs text-gray-500 line-through">
-                                  R$ {product.previousPrice.toFixed(2)}
-                                </span>
+                          {/* NOVO: Controle de quantidade na parte inferior direita */}
+                          <div className="mt-2 flex items-center justify-between">
+                            <div>
+                              {/* Mudança de preço existente */}
+                              {product.priceChange !== 0 && (
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs text-gray-400">Variação 24h:</span>
+                                  <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
+                                  </span>
+                                  {product.previousPrice && product.previousPrice !== product.currentPrice && (
+                                    <span className="text-xs text-gray-500 line-through">
+                                      R$ {(product.previousPrice * quantity).toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
-                          )}
+                            {/* NOVO: Controle de quantidade */}
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs text-gray-400">Qtd:</span>
+                              <QuantityControl
+                                quantity={quantity}
+                                onIncrease={() => updateProductQuantity(build.id, category, quantity + 1)}
+                                onDecrease={() => updateProductQuantity(build.id, category, quantity - 1)}
+                              />
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <div key={category} className="bg-gray-700 rounded p-3 border-2 border-dashed border-gray-600">
@@ -864,7 +947,10 @@ export default function Home() {
                         Total: R$ {calculateBuildTotal(build).toFixed(2)}
                       </p>
                       <div className="text-right text-xs text-gray-400">
-                        {build.categories.length} componente(s)
+                        {build.categories.reduce((total, category) => {
+                          const quantity = build.product_quantities?.[category] || 1;
+                          return total + quantity;
+                        }, 0)} item(s) • {build.categories.length} categoria(s)
                       </div>
                     </div>
                   </div>
