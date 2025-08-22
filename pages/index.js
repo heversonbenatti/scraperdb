@@ -25,6 +25,7 @@ export default function Home() {
   const [buildProductModal, setBuildProductModal] = useState(null);
   const [configFilters, setConfigFilters] = useState({ category: '', website: '' });
   const [chartInterval, setChartInterval] = useState('6h');
+  const [globalSearchToggle, setGlobalSearchToggle] = useState(true);
 
   const [newBuild, setNewBuild] = useState({
     name: '',
@@ -125,6 +126,9 @@ export default function Home() {
         );
 
         setSearchConfigs(configsWithKeywords);
+        const activeCount = configsWithKeywords.filter(c => c.is_active).length;
+        const totalCount = configsWithKeywords.length;
+        setGlobalSearchToggle(activeCount === totalCount && totalCount > 0);
       } catch (error) {
         console.error('Error fetching configs:', error);
       }
@@ -492,6 +496,30 @@ export default function Home() {
     setSearchConfigs(prev => prev.map(config =>
       config.id === id ? { ...config, is_active: !currentStatus } : config
     ));
+  };
+
+  const toggleAllSearches = async (newStatus) => {
+    try {
+      // Atualizar todos os configs no banco
+      await Promise.all(
+        searchConfigs.map(config =>
+          supabaseClient
+            .from('search_configs')
+            .update({ is_active: newStatus })
+            .eq('id', config.id)
+        )
+      );
+
+      // Atualizar estado local
+      setSearchConfigs(prev => prev.map(config => ({
+        ...config,
+        is_active: newStatus
+      })));
+
+      setGlobalSearchToggle(newStatus);
+    } catch (error) {
+      console.error('Error toggling all searches:', error);
+    }
   };
 
   const deleteSearchConfig = async (id) => {
@@ -1201,7 +1229,18 @@ export default function Home() {
             </div>
 
             <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-lg font-bold mb-4">Configurações Ativas</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold">Configurações Ativas</h3>
+                <button
+                  onClick={() => toggleAllSearches(!globalSearchToggle)}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors ${globalSearchToggle
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                >
+                  {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
+                </button>
+              </div>
               <div className="flex gap-4 mb-4">
                 <select
                   value={configFilters.category}
