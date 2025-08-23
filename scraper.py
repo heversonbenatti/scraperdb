@@ -315,18 +315,51 @@ def scrape_kabum(driver, wait, query, wordlist, category):
             return
             
         try:
-            name = card.select_one(".nameCard").get_text(strip=True).lower()
+            base_name = card.select_one(".nameCard").get_text(strip=True).lower()
             matched_keywords = []
             for words in wordlist:
-                if all(p.lower() in name for p in words):
+                if all(p.lower() in base_name for p in words):
                     matched_keywords.append(words)
             
             if matched_keywords:
-                product_link = base_url+card.select_one("a.productLink").get("href")
+                product_link_elem = card.select_one("a.productLink")
+                product_link = base_url + product_link_elem.get("href")
+                
+                # Extrair o ID do produto da classe data-smarthintproductid (está no próprio elemento <a>)
+                product_id = product_link_elem.get("data-smarthintproductid")
+                
+                # Determinar o nome final do produto
+                if product_id:
+                    final_name = f"{base_name} #{product_id}"
+                    
+                    # Verificar se existe um produto com o nome base sem ID
+                    import re
+                    with engine.begin() as conn:
+                        # Buscar produto existente com nome base
+                        existing_query = select(products.c.id, products.c.name).where(
+                            products.c.name == base_name,
+                            products.c.website == "kabum"
+                        )
+                        existing_product = conn.execute(existing_query).first()
+                        
+                        if existing_product:
+                            # Verificar se o nome NÃO termina com # seguido de números (qualquer quantidade)
+                            existing_name = existing_product.name
+                            if not re.search(r'#\d+$', existing_name):
+                                # Produto existe sem ID, vamos atualizar o nome
+                                conn.execute(
+                                    products.update()
+                                    .where(products.c.id == existing_product.id)
+                                    .values(name=final_name)
+                                )
+                                print(f"🔄 Nome atualizado: '{existing_name}' → '{final_name}'")
+                else:
+                    final_name = base_name
+                
                 price_elem = card.select_one('[data-testid="price-value"], .priceCard')
                 price_text = price_elem.get_text(strip=True)
                 price = float(price_text.split("R$")[1].replace(".", "").replace(",", "."))
-                save_product(name, price, "kabum", category, product_link, matched_keywords)
+                save_product(final_name, price, "kabum", category, product_link, matched_keywords)
                 
         except Exception as e:
             print(f"❌ Erro no parsing Kabum: {e}")
