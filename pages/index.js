@@ -3,7 +3,7 @@ import { Layout } from "@/components/Layout";
 import { PriceChart } from "@/components/PriceChart";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
-import { supabaseClient } from "@/utils/supabase";
+import { supabaseClient } from "/utils/supabase";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');

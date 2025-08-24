@@ -41,6 +41,9 @@ export const useProducts = () => {
   });
 
   useEffect(() => {
+    // Só executa no cliente (não no SSR)
+    if (typeof window === 'undefined') return;
+    
     fetchInitialData();
 
     const pricesSubscription = supabaseClient
@@ -64,6 +67,9 @@ export const useProducts = () => {
   }, []);
 
   const fetchInitialData = async () => {
+    // Só executa no cliente
+    if (typeof window === 'undefined') return;
+    
     try {
       const { data: buildsData } = await supabaseClient
         .from('builds')
