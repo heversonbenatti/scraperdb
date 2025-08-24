@@ -338,6 +338,31 @@ export default function Home() {
     ));
   };
 
+  const deleteProduct = async (id, productName) => {
+    if (confirm(`Remover o produto "${productName}"?\n\nISTO IRÁ APAGAR TAMBÉM TODO O HISTÓRICO DE PREÇOS!`)) {
+      try {
+        // Primeiro deletar todos os preços associados
+        await supabaseClient.from('prices').delete().eq('product_id', id);
+
+        // Depois deletar o produto
+        await supabaseClient.from('products').delete().eq('id', id);
+
+        // Atualizar o estado local
+        setProducts(prev => prev.filter(p => p.id !== id));
+
+        // Se o produto deletado estava sendo exibido no modal de preços, fechar o modal
+        if (selectedProduct && selectedProduct.id === id) {
+          setSelectedProduct(null);
+        }
+
+        console.log(`✅ Produto "${productName}" e seu histórico de preços foram removidos`);
+      } catch (error) {
+        console.error('Erro ao deletar produto:', error);
+        alert('Erro ao deletar produto. Tente novamente.');
+      }
+    }
+  };
+
   const getBuildProduct = (build, category) => {
     if (build.product_overrides?.[category]) {
       return products.find(p => p.id === build.product_overrides[category]);
@@ -1139,6 +1164,14 @@ export default function Home() {
                       >
                         🔗
                       </a>
+                      {userRole === 'admin' && (
+                        <button
+                          onClick={() => deleteProduct(product.id, product.name)}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
