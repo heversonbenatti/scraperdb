@@ -32,6 +32,7 @@ export const useProducts = () => {
     // Estados para configurações de busca
     const [configFilters, setConfigFilters] = useState({ category: '', website: '' });
     const [globalSearchToggle, setGlobalSearchToggle] = useState(true);
+    const [promotionPeriod, setPromotionPeriod] = useState('24h'); // Novo estado para período das promoções
     const [newSearch, setNewSearch] = useState({
         search_text: '',
         keywordGroups: [''],
@@ -107,7 +108,7 @@ export const useProducts = () => {
             setProducts(productsWithPrices.filter(p => p.currentPrice > 0));
 
             // Nova lógica de promoções melhorada
-            const promotionalProducts = await calculatePromotions(productsWithPrices.filter(p => p.currentPrice > 0));
+            const promotionalProducts = await calculatePromotions(productsWithPrices.filter(p => p.currentPrice > 0), promotionPeriod);
             setTopDrops(promotionalProducts);
 
             await fetchSearchConfigs();
@@ -118,57 +119,104 @@ export const useProducts = () => {
         }
     };
 
-    const calculatePromotions = async (productsWithPrices) => {
+    const calculatePromotions = async (productsWithPrices, period = '24h') => {
+        // Definir período em milissegundos
+        let timeRange;
+        let minDataPoints = 2; // Mínimo de pontos de dados necessários
+
+        switch (period) {
+            case '24h':
+                timeRange = 24 * 60 * 60 * 1000; // 24 horas
+                minDataPoints = 2;
+                break;
+            case '1w':
+                timeRange = 7 * 24 * 60 * 60 * 1000; // 1 semana
+                minDataPoints = 3;
+                break;
+            case '1m':
+                timeRange = 30 * 24 * 60 * 60 * 1000; // 30 dias
+                minDataPoints = 5;
+                break;
+            case 'all':
+                timeRange = null; // Sem limite de tempo
+                minDataPoints = 3;
+                break;
+            default:
+                timeRange = 24 * 60 * 60 * 1000;
+                minDataPoints = 2;
+        }
+
         const promotionalProducts = await Promise.all(
             productsWithPrices.map(async (product) => {
                 try {
-                    // Buscar histórico dos últimos 60 dias
-                    const { data: historicalPrices } = await supabaseClient
+                    // Buscar histórico baseado no período selecionado
+                    let query = supabaseClient
                         .from('prices')
                         .select('price, price_changed_at')
                         .eq('product_id', product.id)
-                        .gte('price_changed_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString())
                         .order('price_changed_at', { ascending: false });
 
-                    if (!historicalPrices || historicalPrices.length < 5) {
-                        return { ...product, isPromotion: false, promotionScore: 0 };
+                    // Aplicar filtro de tempo se não for "desde sempre"
+                    if (timeRange) {
+                        const startDate = new Date(Date.now() - timeRange).toISOString();
+                        query = query.gte('price_changed_at', startDate);
+                    }
+
+                    const { data: historicalPrices } = await query;
+
+                    if (!historicalPrices || historicalPrices.length < minDataPoints) {
+                        return { ...product, isPromotion: false, promotionScore: 0, period };
                     }
 
                     const prices = historicalPrices.map(p => parseFloat(p.price)).filter(p => p > 0);
 
-                    if (prices.length < 5) {
-                        return { ...product, isPromotion: false, promotionScore: 0 };
+                    if (prices.length < minDataPoints) {
+                        return { ...product, isPromotion: false, promotionScore: 0, period };
                     }
 
-                    // Calcular mediana como baseline
+                    // Calcular estatísticas baseadas no período
                     const sortedPrices = [...prices].sort((a, b) => a - b);
-                    const median = sortedPrices[Math.floor(sortedPrices.length / 2)];
-
-                    // Calcular percentil 25 (preços mais baixos históricos)
-                    const p25 = sortedPrices[Math.floor(sortedPrices.length * 0.25)];
-
                     const currentPrice = product.currentPrice;
-                    const discountFromMedian = ((median - currentPrice) / median) * 100;
-                    const isNearHistoricalLow = currentPrice <= p25 * 1.10; // Até 10% acima do P25
 
-                    // Critérios melhorados para promoção:
-                    const isSignificantDiscount = discountFromMedian >= 15; // Pelo menos 15% abaixo da mediana
-                    const hasMinimumPrice = currentPrice >= 50; // Preço mínimo para considerar
-                    const hasGoodHistory = prices.length >= 10; // Histórico suficiente
+                    let baseline, discountThreshold;
 
-                    const isPromotion = isSignificantDiscount && hasMinimumPrice && (isNearHistoricalLow || hasGoodHistory);
+                    if (period === '24h') {
+                        // Para 24h, usa o preço mais alto como baseline (mais simples)
+                        baseline = Math.max(...prices);
+                        discountThreshold = 5; // 5% mínimo para 24h
+                    } else {
+                        // Para períodos maiores, usa mediana
+                        baseline = sortedPrices[Math.floor(sortedPrices.length / 2)];
+                        discountThreshold = period === '1w' ? 8 : 10; // 8% para semana, 10% para mês+
+                    }
+
+                    const discountPercent = ((baseline - currentPrice) / baseline) * 100;
+                    const historicalLow = Math.min(...prices);
+                    const historicalHigh = Math.max(...prices);
+
+                    // Critérios ajustados por período
+                    const isSignificantDiscount = discountPercent >= discountThreshold;
+                    const hasMinimumPrice = currentPrice >= (period === '24h' ? 20 : 50);
+                    const isNearLow = currentPrice <= historicalLow * 1.15; // Até 15% acima do mínimo
+
+                    const isPromotion = isSignificantDiscount && hasMinimumPrice && (isNearLow || prices.length >= 5);
 
                     return {
                         ...product,
                         isPromotion,
-                        promotionScore: Math.round(Math.max(0, discountFromMedian)),
-                        medianPrice: median,
-                        historicalLow: Math.min(...prices),
-                        priceHistory: prices.length
+                        promotionScore: Math.round(Math.max(0, discountPercent)),
+                        baseline,
+                        historicalLow,
+                        historicalHigh,
+                        priceHistory: prices.length,
+                        period,
+                        // Dados adicionais para interface
+                        priceRange: historicalHigh - historicalLow,
+                        discountAmount: baseline - currentPrice
                     };
                 } catch (error) {
                     console.error(`Error calculating promotion for product ${product.id}:`, error);
-                    return { ...product, isPromotion: false, promotionScore: 0 };
+                    return { ...product, isPromotion: false, promotionScore: 0, period };
                 }
             })
         );
@@ -392,6 +440,8 @@ export const useProducts = () => {
         setGlobalSearchToggle,
         newSearch,
         setNewSearch,
+        promotionPeriod,
+        setPromotionPeriod,
 
         // Computed values
         getSortedProducts,
@@ -403,6 +453,7 @@ export const useProducts = () => {
         showPriceModal,
         handleIntervalChange,
         deleteProduct,
-        fetchInitialData
+        fetchInitialData,
+        calculatePromotions
     };
 };
