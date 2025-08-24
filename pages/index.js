@@ -7,7 +7,7 @@ import { supabaseClient } from "@/utils/supabase";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
-  
+
   const {
     userRole,
     showLogin,
@@ -55,10 +55,19 @@ export default function Home() {
     allWebsites,
     showPriceModal,
     handleIntervalChange,
-    deleteProduct
+    deleteProduct,
+    promotionPeriod,
+    setPromotionPeriod,
+    calculatePromotions
   } = useProducts();
 
-  // Funções específicas de builds
+  // Função para recalcular promoções quando o período muda
+  const handlePeriodChange = async (newPeriod) => {
+    setPromotionPeriod(newPeriod);
+    const filteredProducts = products.filter(p => p.currentPrice > 0);
+    const newPromotions = await calculatePromotions(filteredProducts, newPeriod);
+    setTopDrops(newPromotions);
+  };
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
 
@@ -322,9 +331,42 @@ export default function Home() {
       {activeTab === 'home' && (
         <div className="space-y-8 animate-fade-in">
           <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-            <h2 className="text-2xl font-bold mb-6 flex items-center">
-              <span className="mr-2">🔥</span> Melhores Promoções (Baseado em 60 dias de histórico)
-            </h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold flex items-center">
+                <span className="mr-2">🔥</span> Melhores Promoções
+              </h2>
+
+              {/* Seletor de Período */}
+              <div className="flex items-center space-x-3">
+                <span className="text-sm text-gray-400">Período de análise:</span>
+                <select
+                  value={promotionPeriod}
+                  onChange={(e) => handlePeriodChange(e.target.value)}
+                  className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="24h">Últimas 24h</option>
+                  <option value="1w">Última semana</option>
+                  <option value="1m">Último mês</option>
+                  <option value="all">Desde sempre</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Informações do período atual */}
+            <div className="mb-4 p-3 bg-gray-700 rounded-lg">
+              <div className="flex items-center justify-between text-sm">
+                <div className="text-gray-300">
+                  {promotionPeriod === '24h' && '📊 Analisando preços das últimas 24 horas (mín. 2 registros, desconto mín. 5%)'}
+                  {promotionPeriod === '1w' && '📊 Analisando preços da última semana (mín. 3 registros, desconto mín. 8%)'}
+                  {promotionPeriod === '1m' && '📊 Analisando preços do último mês (mín. 5 registros, desconto mín. 10%)'}
+                  {promotionPeriod === 'all' && '📊 Analisando todo o histórico disponível (mín. 3 registros, desconto mín. 10%)'}
+                </div>
+                <div className="text-gray-400">
+                  {topDrops.length} promoção(ões) encontrada(s)
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-3">
               {topDrops.length > 0 ? (
                 topDrops.map((product, idx) => (
@@ -339,9 +381,14 @@ export default function Home() {
                             <span className="text-xs bg-purple-600 px-2 py-1 rounded">
                               {product.priceHistory} preços analisados
                             </span>
-                            {product.medianPrice && (
+                            {product.baseline && (
                               <span className="text-xs text-gray-400">
-                                Mediana: R$ {product.medianPrice.toFixed(2)}
+                                {promotionPeriod === '24h' ? 'Preço máximo' : 'Baseline'}: R$ {product.baseline.toFixed(2)}
+                              </span>
+                            )}
+                            {product.discountAmount && (
+                              <span className="text-xs text-green-400">
+                                Economia: R$ {product.discountAmount.toFixed(2)}
                               </span>
                             )}
                           </div>
@@ -350,11 +397,18 @@ export default function Home() {
                       <div className="flex items-center space-x-4">
                         <div className="text-right">
                           <p className="text-lg font-bold text-green-400">R$ {product.currentPrice.toFixed(2)}</p>
-                          {product.historicalLow && (
-                            <p className="text-xs text-gray-400">
-                              Menor histórico: R$ {product.historicalLow.toFixed(2)}
-                            </p>
-                          )}
+                          <div className="flex items-center space-x-2">
+                            {product.historicalLow && (
+                              <p className="text-xs text-gray-400">
+                                Menor: R$ {product.historicalLow.toFixed(2)}
+                              </p>
+                            )}
+                            {product.historicalHigh && product.historicalLow && (
+                              <p className="text-xs text-gray-500">
+                                ↔ R$ {product.priceRange.toFixed(2)}
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <div className="bg-red-600 px-3 py-1 rounded-full">
                           <span className="font-bold text-white">-{product.promotionScore}%</span>
@@ -372,9 +426,12 @@ export default function Home() {
                 ))
               ) : (
                 <div className="text-center py-8 text-gray-400">
-                  <p className="text-xl">🔍 Nenhuma promoção significativa encontrada</p>
+                  <p className="text-xl">🔍 Nenhuma promoção encontrada neste período</p>
                   <p className="text-sm mt-2">
-                    Produtos precisam ter histórico de pelo menos 60 dias e desconto de 15%+ para aparecer aqui
+                    {promotionPeriod === '24h' && 'Tente aumentar o período para "Última semana" ou verifique se há dados suficientes.'}
+                    {promotionPeriod === '1w' && 'Tente "Último mês" ou "Desde sempre" para encontrar mais promoções.'}
+                    {promotionPeriod === '1m' && 'Tente "Desde sempre" ou aguarde mais dados serem coletados.'}
+                    {promotionPeriod === 'all' && 'Aguarde mais dados serem coletados pelo scraper ou ajuste os critérios.'}
                   </p>
                 </div>
               )}
@@ -810,7 +867,7 @@ export default function Home() {
                 className={`px-4 py-2 rounded-md font-medium transition-colors ${globalSearchToggle
                   ? 'bg-red-600 hover:bg-red-700 text-white'
                   : 'bg-green-600 hover:bg-green-700 text-white'
-                }`}
+                  }`}
               >
                 {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
               </button>
@@ -908,7 +965,7 @@ export default function Home() {
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${chartInterval === interval.value
                       ? 'bg-purple-600 text-white'
                       : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                    }`}
+                      }`}
                     title={interval.desc}
                   >
                     {interval.label}
@@ -974,7 +1031,7 @@ export default function Home() {
                     <div
                       key={product.id}
                       className={`bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors ${product.id === buildProductModal.currentProduct.id ? 'ring-2 ring-purple-500' : ''
-                      }`}
+                        }`}
                       onClick={() => updateBuildProduct(buildProductModal.buildId, buildProductModal.category, product.id)}
                     >
                       <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{product.name}</p>
