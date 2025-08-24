@@ -1,308 +1,68 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+import { useState } from "react";
+import { Layout } from "@/components/Layout";
+import { PriceChart } from "@/components/PriceChart";
+import { useAuth } from "@/hooks/useAuth";
+import { useProducts } from "@/hooks/useProducts";
+import { supabaseClient } from "@/utils/supabase";
 
 export default function Home() {
-  const [userRole, setUserRole] = useState('guest');
-  const [showLogin, setShowLogin] = useState(false);
-  const [builds, setBuilds] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchConfigs, setSearchConfigs] = useState([]);
   const [activeTab, setActiveTab] = useState('home');
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [priceHistory, setPriceHistory] = useState([]);
-  const [sortBy, setSortBy] = useState('price');
-  const [sortOrder, setSortOrder] = useState('asc');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategories, setSelectedCategories] = useState([]);
-  const [selectedWebsites, setSelectedWebsites] = useState([]);
-  const [topDrops, setTopDrops] = useState([]);
-  const [expandedBuildProduct, setExpandedBuildProduct] = useState(null);
-  const [buildProductModal, setBuildProductModal] = useState(null);
-  const [configFilters, setConfigFilters] = useState({ category: '', website: '' });
-  const [chartInterval, setChartInterval] = useState('6h');
-  const [globalSearchToggle, setGlobalSearchToggle] = useState(true);
+  
+  const {
+    userRole,
+    showLogin,
+    setShowLogin,
+    loginCreds,
+    setLoginCreds,
+    handleLogin,
+    handleLogout
+  } = useAuth();
 
-  const [newBuild, setNewBuild] = useState({
-    name: '',
-    categories: [],
-    auto_refresh: true,
-    product_overrides: {},
-    product_quantities: {} // NOVO: armazenar quantidades por categoria
-  });
+  const {
+    builds,
+    setBuilds,
+    products,
+    loading,
+    searchConfigs,
+    setSearchConfigs,
+    topDrops,
+    selectedProduct,
+    setSelectedProduct,
+    priceHistory,
+    chartInterval,
+    sortBy,
+    setSortBy,
+    sortOrder,
+    setSortOrder,
+    searchTerm,
+    setSearchTerm,
+    selectedCategories,
+    setSelectedCategories,
+    selectedWebsites,
+    setSelectedWebsites,
+    buildProductModal,
+    setBuildProductModal,
+    newBuild,
+    setNewBuild,
+    configFilters,
+    setConfigFilters,
+    globalSearchToggle,
+    setGlobalSearchToggle,
+    newSearch,
+    setNewSearch,
+    getSortedProducts,
+    allCategories,
+    allWebsites,
+    showPriceModal,
+    handleIntervalChange,
+    deleteProduct
+  } = useProducts();
 
-  const [newSearch, setNewSearch] = useState({
-    search_text: '',
-    keywordGroups: [''],
-    category: '',
-    websites: { kabum: false, pichau: false, terabyte: false },
-    is_active: true
-  });
-
-  const [loginCreds, setLoginCreds] = useState({ email: '', password: '' });
-
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (session) setUserRole('admin');
-      await fetchInitialData();
-    };
-
-    const fetchInitialData = async () => {
-      try {
-        const { data: buildsData } = await supabaseClient
-          .from('builds')
-          .select('*')
-          .order('created_at', { ascending: false });
-        setBuilds(buildsData || []);
-
-        const { data: productsData } = await supabaseClient
-          .from('products')
-          .select('id, name, category, website, product_link');
-
-        const productsWithPrices = await Promise.all(
-          (productsData || []).map(async (product) => {
-            // Get the last two distinct prices to calculate price change
-            const { data: pricesData } = await supabaseClient
-              .from('prices')
-              .select('price, collected_at, price_changed_at, last_checked_at')
-              .eq('product_id', product.id)
-              .order('price_changed_at', { ascending: false })
-              .limit(2);
-
-            const currentPrice = pricesData?.[0]?.price || 0;
-            const previousPrice = pricesData?.[1]?.price || currentPrice;
-            const priceChange = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice * 100) : 0;
-
-            return {
-              ...product,
-              currentPrice,
-              previousPrice,
-              priceChange,
-              lastUpdated: pricesData?.[0]?.last_checked_at || pricesData?.[0]?.collected_at
-            };
-          })
-        );
-
-        setProducts(productsWithPrices.filter(p => p.currentPrice > 0));
-
-        const drops = productsWithPrices
-          .filter(p => p.priceChange < 0 && p.currentPrice > 0)
-          .sort((a, b) => a.priceChange - b.priceChange)
-          .slice(0, 10);
-        setTopDrops(drops);
-
-        await fetchSearchConfigs();
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setLoading(false);
-      }
-    };
-
-    const fetchSearchConfigs = async () => {
-      try {
-        const { data: configsData } = await supabaseClient
-          .from('search_configs')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        const configsWithKeywords = await Promise.all(
-          (configsData || []).map(async (config) => {
-            const { data: keywordData } = await supabaseClient
-              .from('keyword_groups')
-              .select('keywords')
-              .eq('search_config_id', config.id);
-
-            return {
-              ...config,
-              keywordGroups: keywordData?.map(kg => kg.keywords) || []
-            };
-          })
-        );
-
-        setSearchConfigs(configsWithKeywords);
-        const activeCount = configsWithKeywords.filter(c => c.is_active).length;
-        const totalCount = configsWithKeywords.length;
-        setGlobalSearchToggle(activeCount === totalCount && totalCount > 0);
-      } catch (error) {
-        console.error('Error fetching configs:', error);
-      }
-    };
-
-    checkSession();
-
-    const pricesSubscription = supabaseClient
-      .channel('price-changes')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'prices'
-      }, payload => {
-        setProducts(prev => prev.map(product =>
-          product.id === payload.new.product_id
-            ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.last_checked_at || payload.new.collected_at }
-            : product
-        ));
-      })
-      .subscribe();
-
-    return () => {
-      supabaseClient.removeChannel(pricesSubscription);
-    };
-  }, []);
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    const { error } = await supabaseClient.auth.signInWithPassword({
-      email: loginCreds.email,
-      password: loginCreds.password,
-    });
-    if (!error) {
-      setUserRole('admin');
-      setShowLogin(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabaseClient.auth.signOut();
-    setUserRole('guest');
-  };
-
-  const fetchPriceHistory = async (productId, interval = '6h') => {
-    try {
-      let totalHours, intervalHours, expectedPoints;
-
-      // Definir período total e intervalo entre pontos
-      switch (interval) {
-        case '1h': // Intervalo de 1h, período de 24h
-          totalHours = 24;
-          intervalHours = 1;
-          expectedPoints = 24;
-          break;
-        case '6h': // Intervalo de 6h, período de 6 dias
-          totalHours = 144; // 6 dias * 24 horas
-          intervalHours = 6;
-          expectedPoints = 24; // 144h / 6h = 24 pontos
-          break;
-        case '1d': // Intervalo de 1 dia, período de 30 dias
-          totalHours = 720; // 30 dias * 24 horas
-          intervalHours = 24;
-          expectedPoints = 30; // 720h / 24h = 30 pontos
-          break;
-        case '1w': // Intervalo de 1 semana, período de 3 meses
-          totalHours = 2160; // 90 dias * 24 horas
-          intervalHours = 168; // 7 dias * 24 horas
-          expectedPoints = 12; // 2160h / 168h ≈ 12 pontos
-          break;
-        default:
-          totalHours = 144;
-          intervalHours = 6;
-          expectedPoints = 24;
-      }
-
-      const startDate = new Date();
-      startDate.setHours(startDate.getHours() - totalHours);
-
-      const { data } = await supabaseClient
-        .from('prices')
-        .select('price, collected_at, price_changed_at')
-        .eq('product_id', productId)
-        .gte('price_changed_at', startDate.toISOString())
-        .order('price_changed_at', { ascending: true })
-        .limit(expectedPoints * 2); // Busca mais dados para filtrar depois
-
-      // Se não temos dados suficientes, retorna o que temos
-      if (!data || data.length === 0) {
-        setPriceHistory([]);
-        return;
-      }
-
-      // Se temos poucos pontos, retorna todos
-      if (data.length <= expectedPoints) {
-        setPriceHistory(data);
-        return;
-      }
-
-      // Filtrar dados para ter aproximadamente o número esperado de pontos
-      // distribuídos uniformemente ao longo do período
-      const filteredData = [];
-      const totalDataPoints = data.length;
-      const step = Math.max(1, Math.floor(totalDataPoints / expectedPoints));
-
-      for (let i = 0; i < totalDataPoints; i += step) {
-        filteredData.push(data[i]);
-      }
-
-      // Sempre incluir o último ponto se não estiver já incluído
-      const lastPoint = data[data.length - 1];
-      const lastFilteredPoint = filteredData[filteredData.length - 1];
-      if (lastPoint.price_changed_at !== lastFilteredPoint.price_changed_at) {
-        filteredData.push(lastPoint);
-      }
-
-      setPriceHistory(filteredData);
-    } catch (error) {
-      console.error('Error fetching price history:', error);
-      setPriceHistory([]);
-    }
-  };
-
-  const showPriceModal = async (product) => {
-    setSelectedProduct(product);
-    setChartInterval('6h'); // Reset para padrão
-    await fetchPriceHistory(product.id, '6h');
-  };
-
-  const handleIntervalChange = async (newInterval) => {
-    setChartInterval(newInterval);
-    if (selectedProduct) {
-      await fetchPriceHistory(selectedProduct.id, newInterval);
-    }
-  };
-
-  const getSortedProducts = useMemo(() => {
-    let sorted = [...products];
-
-    if (searchTerm) {
-      sorted = sorted.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    if (selectedCategories.length > 0) {
-      sorted = sorted.filter(p => selectedCategories.includes(p.category));
-    }
-
-    if (selectedWebsites.length > 0) {
-      sorted = sorted.filter(p => selectedWebsites.includes(p.website));
-    }
-
-    sorted.sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === 'price') {
-        comparison = a.currentPrice - b.currentPrice;
-      } else if (sortBy === 'category') {
-        comparison = a.category.localeCompare(b.category);
-      } else if (sortBy === 'drop') {
-        comparison = a.priceChange - b.priceChange;
-      }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
-    return sorted;
-  }, [products, searchTerm, selectedCategories, selectedWebsites, sortBy, sortOrder]);
-
+  // Funções específicas de builds
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
 
     return build.categories.reduce((total, category) => {
-      // Buscar a quantidade para esta categoria (padrão = 1)
       const quantity = build.product_quantities?.[category] || 1;
 
       if (build.product_overrides?.[category]) {
@@ -320,7 +80,7 @@ export default function Home() {
     const build = builds.find(b => b.id === buildId);
     const newQuantities = {
       ...build.product_quantities,
-      [category]: Math.max(1, newQuantity) // Mínimo 1
+      [category]: Math.max(1, newQuantity)
     };
 
     await supabaseClient
@@ -336,31 +96,6 @@ export default function Home() {
         ? { ...b, product_quantities: newQuantities, auto_refresh: false }
         : b
     ));
-  };
-
-  const deleteProduct = async (id, productName) => {
-    if (confirm(`Remover o produto "${productName}"?\n\nISTO IRÁ APAGAR TAMBÉM TODO O HISTÓRICO DE PREÇOS!`)) {
-      try {
-        // Primeiro deletar todos os preços associados
-        await supabaseClient.from('prices').delete().eq('product_id', id);
-
-        // Depois deletar o produto
-        await supabaseClient.from('products').delete().eq('id', id);
-
-        // Atualizar o estado local
-        setProducts(prev => prev.filter(p => p.id !== id));
-
-        // Se o produto deletado estava sendo exibido no modal de preços, fechar o modal
-        if (selectedProduct && selectedProduct.id === id) {
-          setSelectedProduct(null);
-        }
-
-        console.log(`✅ Produto "${productName}" e seu histórico de preços foram removidos`);
-      } catch (error) {
-        console.error('Erro ao deletar produto:', error);
-        alert('Erro ao deletar produto. Tente novamente.');
-      }
-    }
   };
 
   const getBuildProduct = (build, category) => {
@@ -414,7 +149,6 @@ export default function Home() {
   const createBuild = async () => {
     if (!newBuild.name || newBuild.categories.length === 0) return;
 
-    // Inicializar quantities com 1 para cada categoria
     const initialQuantities = {};
     newBuild.categories.forEach(category => {
       initialQuantities[category] = 1;
@@ -441,25 +175,6 @@ export default function Home() {
     }
   };
 
-  const QuantityControl = ({ quantity, onIncrease, onDecrease }) => (
-    <div className="flex items-center space-x-2 bg-gray-600 rounded-md">
-      <button
-        onClick={onDecrease}
-        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-l-md transition-colors"
-        disabled={quantity <= 1}
-      >
-        −
-      </button>
-      <span className="w-8 text-center text-sm font-medium">{quantity}</span>
-      <button
-        onClick={onIncrease}
-        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-r-md transition-colors"
-      >
-        +
-      </button>
-    </div>
-  );
-
   const deleteBuild = async (id) => {
     if (confirm('Remover esta build?')) {
       await supabaseClient.from('builds').delete().eq('id', id);
@@ -467,6 +182,7 @@ export default function Home() {
     }
   };
 
+  // Funções de configurações de busca
   const addSearchConfig = async () => {
     if (!newSearch.search_text || !newSearch.category) return;
 
@@ -525,7 +241,6 @@ export default function Home() {
 
   const toggleAllSearches = async (newStatus) => {
     try {
-      // Atualizar todos os configs no banco
       await Promise.all(
         searchConfigs.map(config =>
           supabaseClient
@@ -535,7 +250,6 @@ export default function Home() {
         )
       );
 
-      // Atualizar estado local
       setSearchConfigs(prev => prev.map(config => ({
         ...config,
         is_active: newStatus
@@ -554,7 +268,7 @@ export default function Home() {
     }
   };
 
-  const getFilteredConfigs = useMemo(() => {
+  const getFilteredConfigs = () => {
     let filtered = [...searchConfigs];
     if (configFilters.category) {
       filtered = filtered.filter(c => c.category === configFilters.category);
@@ -563,180 +277,27 @@ export default function Home() {
       filtered = filtered.filter(c => c.website === configFilters.website);
     }
     return filtered;
-  }, [searchConfigs, configFilters]);
-
-  const allCategories = useMemo(() =>
-    [...new Set(products.map(p => p.category))].sort(),
-    [products]
-  );
-
-  const allWebsites = useMemo(() =>
-    [...new Set(products.map(p => p.website))].sort(),
-    [products]
-  );
-
-  // Componente do gráfico melhorado
-  const PriceChart = ({ data, className = "" }) => {
-    if (!data || data.length === 0) {
-      return (
-        <div className={`flex items-center justify-center h-48 text-gray-400 ${className}`}>
-          Sem dados de histórico disponíveis
-        </div>
-      );
-    }
-
-    const maxPrice = Math.max(...data.map(d => d.price));
-    const minPrice = Math.min(...data.map(d => d.price));
-    const priceRange = maxPrice - minPrice;
-
-    // Se o range for muito pequeno (menos de 1% do preço máximo), força um range mínimo
-    const minRangePercent = 0.02; // 2% mínimo
-    const actualRange = priceRange < maxPrice * minRangePercent ? maxPrice * minRangePercent : priceRange;
-
-    // Calcula padding baseado no range real ou mínimo
-    const padding = actualRange * 0.1; // 10% de padding
-    const paddedMin = minPrice - padding;
-    const paddedMax = maxPrice + padding;
-    const paddedRange = paddedMax - paddedMin;
-
-    const getY = (price) => 200 - ((price - paddedMin) / paddedRange) * 180;
-    const getX = (index) => (index / (data.length - 1)) * 380 + 10;
-
-    // Criar path para linha curva
-    const createPath = () => {
-      if (data.length === 1) {
-        const x = getX(0);
-        const y = getY(data[0].price);
-        return `M ${x} ${y} L ${x + 1} ${y}`;
-      }
-
-      let path = `M ${getX(0)} ${getY(data[0].price)}`;
-
-      for (let i = 1; i < data.length; i++) {
-        const x = getX(i);
-        const y = getY(data[i].price);
-        const prevX = getX(i - 1);
-        const prevY = getY(data[i - 1].price);
-
-        // Criar curva suave usando quadratic bezier
-        const cpx = prevX + (x - prevX) / 2;
-        path += ` Q ${cpx} ${prevY} ${x} ${y}`;
-      }
-
-      return path;
-    };
-
-    // Criar área sob a curva
-    const createAreaPath = () => {
-      if (data.length === 0) return '';
-
-      let path = `M ${getX(0)} 200 L ${getX(0)} ${getY(data[0].price)}`;
-
-      for (let i = 1; i < data.length; i++) {
-        const x = getX(i);
-        const y = getY(data[i].price);
-        const prevX = getX(i - 1);
-        const prevY = getY(data[i - 1].price);
-
-        const cpx = prevX + (x - prevX) / 2;
-        path += ` Q ${cpx} ${prevY} ${x} ${y}`;
-      }
-
-      path += ` L ${getX(data.length - 1)} 200 Z`;
-      return path;
-    };
-
-    return (
-      <div className={`bg-gray-700 rounded-lg p-4 ${className}`}>
-        <svg width="100%" height="240" viewBox="0 0 400 240" className="overflow-visible">
-          <defs>
-            <linearGradient id="priceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgb(147, 51, 234)" stopOpacity={0.3} />
-              <stop offset="100%" stopColor="rgb(147, 51, 234)" stopOpacity={0.05} />
-            </linearGradient>
-            <filter id="glow">
-              <feMorphology operator="dilate" radius="1" />
-              <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-              <feMerge>
-                <feMergeNode in="coloredBlur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* Grid lines */}
-          <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgb(75, 85, 99)" strokeWidth="0.5" opacity="0.3" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="200" fill="url(#grid)" />
-
-          {/* Área sob a curva */}
-          <path
-            d={createAreaPath()}
-            fill="url(#priceGradient)"
-          />
-
-          {/* Linha principal */}
-          <path
-            d={createPath()}
-            fill="none"
-            stroke="rgb(147, 51, 234)"
-            strokeWidth="3"
-            filter="url(#glow)"
-            className="drop-shadow-lg"
-          />
-
-          {/* Pontos de dados */}
-          {data.map((entry, idx) => {
-            const x = getX(idx);
-            const y = getY(entry.price);
-            return (
-              <g key={idx}>
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="4"
-                  fill="rgb(147, 51, 234)"
-                  stroke="white"
-                  strokeWidth="2"
-                  className="hover:r-6 transition-all duration-200 cursor-pointer"
-                  style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
-                >
-                  <title>
-                    R$ {entry.price.toFixed(2)} - {new Date(entry.price_changed_at || entry.collected_at).toLocaleDateString('pt-BR')}
-                  </title>
-                </circle>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Estatísticas */}
-        <div className="grid grid-cols-3 gap-4 mt-4 text-center text-sm">
-          <div>
-            <p className="text-gray-400">Menor</p>
-            <p className="text-lg font-bold text-green-400">
-              R$ {minPrice.toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-gray-400">Atual</p>
-            <p className="text-lg font-bold text-purple-400">
-              R$ {data[data.length - 1]?.price.toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <p className="text-gray-400">Maior</p>
-            <p className="text-lg font-bold text-red-400">
-              R$ {maxPrice.toFixed(2)}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
   };
+
+  // Componente de controle de quantidade
+  const QuantityControl = ({ quantity, onIncrease, onDecrease }) => (
+    <div className="flex items-center space-x-2 bg-gray-600 rounded-md">
+      <button
+        onClick={onDecrease}
+        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-l-md transition-colors"
+        disabled={quantity <= 1}
+      >
+        −
+      </button>
+      <span className="w-8 text-center text-sm font-medium">{quantity}</span>
+      <button
+        onClick={onIncrease}
+        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-500 rounded-r-md transition-colors"
+      >
+        +
+      </button>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -747,636 +308,549 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100">
-      <header className="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-8">
-              <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                🖥️ PC Scraper
-              </h1>
-              <nav className="hidden md:flex space-x-4">
-                {['home', 'builds', 'products', ...(userRole === 'admin' ? ['admin'] : [])].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === tab
-                      ? 'bg-gray-700 text-white'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                      }`}
-                  >
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div className="flex items-center space-x-4">
-              {userRole === 'admin' ? (
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-md text-sm font-medium transition-colors"
-                >
-                  Sair
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowLogin(true)}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md text-sm font-medium transition-colors"
-                >
-                  Login Admin
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'home' && (
-          <div className="space-y-8 animate-fade-in">
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h2 className="text-2xl font-bold mb-6 flex items-center">
-                <span className="mr-2">📉</span> Maiores Quedas de Preço (24h)
-              </h2>
-              <div className="space-y-3">
-                {topDrops.map((product, idx) => (
-                  <div key={product.id} className="bg-gray-700 rounded-lg p-4">
-                    <div className="flex items-center justify-between hover:bg-gray-600 transition-colors rounded-lg p-2">
-                      <div className="flex items-center space-x-4">
-                        <span className="text-2xl font-bold text-gray-400">#{idx + 1}</span>
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-gray-400">{product.category} • {product.website}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-400">R$ {product.currentPrice.toFixed(2)}</p>
-                          <p className="text-sm text-gray-400 line-through">R$ {product.previousPrice.toFixed(2)}</p>
-                        </div>
-                        <div className="bg-green-600 px-3 py-1 rounded-full">
-                          <span className="font-bold">{product.priceChange.toFixed(1)}%</span>
-                        </div>
-                        <button
-                          onClick={() => showPriceModal(product)}
-                          className="text-gray-400 hover:text-white transition-colors"
-                          title="Ver gráfico de preços"
-                        >
-                          📊
-                        </button>
+    <Layout
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      userRole={userRole}
+      handleLogin={handleLogin}
+      handleLogout={handleLogout}
+      showLogin={showLogin}
+      setShowLogin={setShowLogin}
+      loginCreds={loginCreds}
+      setLoginCreds={setLoginCreds}
+    >
+      {activeTab === 'home' && (
+        <div className="space-y-8 animate-fade-in">
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <h2 className="text-2xl font-bold mb-6 flex items-center">
+              <span className="mr-2">📉</span> Maiores Quedas de Preço (24h)
+            </h2>
+            <div className="space-y-3">
+              {topDrops.map((product, idx) => (
+                <div key={product.id} className="bg-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between hover:bg-gray-600 transition-colors rounded-lg p-2">
+                    <div className="flex items-center space-x-4">
+                      <span className="text-2xl font-bold text-gray-400">#{idx + 1}</span>
+                      <div>
+                        <p className="font-medium">{product.name}</p>
+                        <p className="text-sm text-gray-400">{product.category} • {product.website}</p>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'builds' && (
-          <div className="space-y-6 animate-fade-in">
-            {userRole === 'admin' && (
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h3 className="text-lg font-bold mb-4">Nova Build</h3>
-                <div className="space-y-4">
-                  <input
-                    type="text"
-                    placeholder="Nome da Build"
-                    value={newBuild.name}
-                    onChange={(e) => setNewBuild({ ...newBuild, name: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {allCategories.map(category => (
-                      <label key={category} className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newBuild.categories.includes(category)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewBuild({ ...newBuild, categories: [...newBuild.categories, category] });
-                            } else {
-                              setNewBuild({ ...newBuild, categories: newBuild.categories.filter(c => c !== category) });
-                            }
-                          }}
-                          className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
-                        />
-                        <span className="text-sm">{category.replace('_', ' ').toUpperCase()}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    onClick={createBuild}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
-                  >
-                    Criar Build
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {builds.map(build => (
-                <div key={build.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xl font-bold">{build.name}</h3>
-                    <div className="flex items-center space-x-2">
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={build.auto_refresh !== false}
-                          onChange={(e) => toggleBuildAutoRefresh(build.id, e.target.checked)}
-                          className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
-                        />
-                        <span className="text-sm">Auto</span>
-                      </label>
-                      {userRole === 'admin' && (
-                        <button
-                          onClick={() => deleteBuild(build.id)}
-                          className="text-red-400 hover:text-red-300"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    {build.categories.map(category => {
-                      const product = getBuildProduct(build, category);
-                      const isOverride = build.product_overrides?.[category];
-                      const quantity = build.product_quantities?.[category] || 1; // NOVO
-
-                      return product ? (
-                        <div key={category} className="bg-gray-700 rounded p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
-                              <p className="text-sm font-medium truncate max-w-[200px]">{product.name}</p>
-                              <p className="text-xs text-gray-500 capitalize">{product.website}</p>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="text-right">
-                                <span className="font-bold text-purple-400">
-                                  R$ {(product.currentPrice * quantity).toFixed(2)}
-                                </span>
-                                {quantity > 1 && (
-                                  <p className="text-xs text-gray-400">
-                                    {quantity}x R$ {product.currentPrice.toFixed(2)}
-                                  </p>
-                                )}
-                              </div>
-                              {isOverride && <span className="text-xs text-yellow-400">✏️</span>}
-
-                              {/* Botão de gráfico */}
-                              <button
-                                onClick={() => showPriceModal(product)}
-                                className="text-gray-400 hover:text-white transition-colors"
-                                title="Ver gráfico de preços"
-                              >
-                                📊
-                              </button>
-
-                              {/* Botão de URL */}
-                              <a
-                                href={product.product_link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-gray-400 hover:text-white transition-colors"
-                                title="Ver no site"
-                              >
-                                🔗
-                              </a>
-
-                              {/* Botão de configuração */}
-                              <button
-                                onClick={() => setBuildProductModal({ buildId: build.id, category, currentProduct: product })}
-                                className="text-gray-400 hover:text-white transition-colors"
-                                title="Trocar produto"
-                              >
-                                ⚙️
-                              </button>
-                            </div>
-                          </div>
-                          {/* NOVO: Controle de quantidade na parte inferior direita */}
-                          <div className="mt-2 flex items-center justify-between">
-                            <div>
-                              {/* Mudança de preço existente */}
-                              {product.priceChange !== 0 && (
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-xs text-gray-400">Variação 24h:</span>
-                                  <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
-                                  </span>
-                                  {product.previousPrice && product.previousPrice !== product.currentPrice && (
-                                    <span className="text-xs text-gray-500 line-through">
-                                      R$ {(product.previousPrice * quantity).toFixed(2)}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            {/* NOVO: Controle de quantidade */}
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs text-gray-400">Qtd:</span>
-                              <QuantityControl
-                                quantity={quantity}
-                                onIncrease={() => updateProductQuantity(build.id, category, quantity + 1)}
-                                onDecrease={() => updateProductQuantity(build.id, category, quantity - 1)}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div key={category} className="bg-gray-700 rounded p-3 border-2 border-dashed border-gray-600">
-                          <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
-                          <p className="text-sm text-gray-500 italic">Nenhum produto encontrado</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-gray-600">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xl font-bold text-purple-400">
-                        Total: R$ {calculateBuildTotal(build).toFixed(2)}
-                      </p>
-                      <div className="text-right text-xs text-gray-400">
-                        {build.categories.reduce((total, category) => {
-                          const quantity = build.product_quantities?.[category] || 1;
-                          return total + quantity;
-                        }, 0)} item(s) • {build.categories.length} categoria(s)
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-green-400">R$ {product.currentPrice.toFixed(2)}</p>
+                        <p className="text-sm text-gray-400 line-through">R$ {product.previousPrice.toFixed(2)}</p>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'products' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-              <div className="flex flex-wrap gap-4">
-                <input
-                  type="text"
-                  placeholder="Buscar produtos..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1 min-w-[200px] px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="price">Preço</option>
-                  <option value="category">Categoria</option>
-                  <option value="drop">Maior Queda %</option>
-                </select>
-                <button
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-md transition-colors"
-                >
-                  {sortOrder === 'asc' ? '↑' : '↓'}
-                </button>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Filtro por categoria */}
-                <div>
-                  <p className="text-sm text-gray-400 mb-2">Filtrar por categoria:</p>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {allCategories.map(category => (
-                      <label key={category} className="flex items-center space-x-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedCategories.includes(category)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedCategories([...selectedCategories, category]);
-                            } else {
-                              setSelectedCategories(selectedCategories.filter(c => c !== category));
-                            }
-                          }}
-                          className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
-                        />
-                        <span className="text-xs">{category.replace('_', ' ').toUpperCase()}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {selectedCategories.length > 0 && (
-                    <button
-                      onClick={() => setSelectedCategories([])}
-                      className="text-xs text-purple-400 hover:text-purple-300 mt-2"
-                    >
-                      Limpar categorias
-                    </button>
-                  )}
-                </div>
-
-                {/* Filtro por website */}
-                <div>
-                  <p className="text-sm text-gray-400 mb-2">Filtrar por website:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {allWebsites.map(website => (
-                      <label key={website} className="flex items-center space-x-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedWebsites.includes(website)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedWebsites([...selectedWebsites, website]);
-                            } else {
-                              setSelectedWebsites(selectedWebsites.filter(w => w !== website));
-                            }
-                          }}
-                          className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
-                        />
-                        <span className="text-xs capitalize">{website}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {selectedWebsites.length > 0 && (
-                    <button
-                      onClick={() => setSelectedWebsites([])}
-                      className="text-xs text-blue-400 hover:text-blue-300 mt-2"
-                    >
-                      Limpar websites
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Resumo dos filtros */}
-              {(selectedCategories.length > 0 || selectedWebsites.length > 0 || searchTerm) && (
-                <div className="mt-4 p-3 bg-gray-700 rounded-md">
-                  <p className="text-sm text-gray-300">
-                    Mostrando {getSortedProducts.length} produto(s)
-                    {searchTerm && ` com "${searchTerm}"`}
-                    {selectedCategories.length > 0 && ` em ${selectedCategories.length} categoria(s)`}
-                    {selectedWebsites.length > 0 && ` de ${selectedWebsites.length} website(s)`}
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSearchTerm('');
-                      setSelectedCategories([]);
-                      setSelectedWebsites([]);
-                    }}
-                    className="text-xs text-red-400 hover:text-red-300 mt-1"
-                  >
-                    Limpar todos os filtros
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {getSortedProducts.map(product => (
-                <div key={product.id} className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-purple-500 transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs bg-purple-600 px-2 py-1 rounded">
-                      {product.category.replace('_', ' ').toUpperCase()}
-                    </span>
-                    <span className="text-xs text-gray-400 capitalize">{product.website}</span>
-                  </div>
-                  <h4 className="text-sm font-medium mb-3 line-clamp-2 max-w-[220px] truncate">{product.name}</h4>
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className="text-xl font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</p>
-                      {product.priceChange !== 0 && (
-                        <p className={`text-xs ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {product.priceChange.toFixed(1)}%
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex space-x-2">
+                      <div className="bg-green-600 px-3 py-1 rounded-full">
+                        <span className="font-bold">{product.priceChange.toFixed(1)}%</span>
+                      </div>
                       <button
                         onClick={() => showPriceModal(product)}
-                        className="text-gray-400 hover:text-white"
+                        className="text-gray-400 hover:text-white transition-colors"
+                        title="Ver gráfico de preços"
                       >
                         📊
                       </button>
-                      <a
-                        href={product.product_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-gray-400 hover:text-white"
-                      >
-                        🔗
-                      </a>
-                      {userRole === 'admin' && (
-                        <button
-                          onClick={() => deleteProduct(product.id, product.name)}
-                          className="text-red-400 hover:text-red-300"
-                        >
-                          🗑️
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        )}
-
-        {activeTab === 'admin' && userRole === 'admin' && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-lg font-bold mb-4">Nova Configuração de Busca</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <input
-                  type="text"
-                  placeholder="Termo de busca"
-                  value={newSearch.search_text}
-                  onChange={(e) => setNewSearch({ ...newSearch, search_text: e.target.value })}
-                  className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <input
-                  type="text"
-                  placeholder="Categoria"
-                  value={newSearch.category}
-                  onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
-                  className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-              <div className="space-y-2 mb-4">
-                <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
-                {newSearch.keywordGroups.map((group, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="ex: x3d,5500,processador"
-                      value={group}
-                      onChange={(e) => {
-                        const updated = [...newSearch.keywordGroups];
-                        updated[idx] = e.target.value;
-                        setNewSearch({ ...newSearch, keywordGroups: updated });
-                      }}
-                      className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    {newSearch.keywordGroups.length > 1 && (
-                      <button
-                        onClick={() => {
-                          setNewSearch({
-                            ...newSearch,
-                            keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
-                          });
-                        }}
-                        className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
-                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-md transition-colors"
-                >
-                  + Adicionar Grupo
-                </button>
-              </div>
-              <div className="flex gap-4 mb-4">
-                {Object.keys(newSearch.websites).map(site => (
-                  <label key={site} className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newSearch.websites[site]}
-                      onChange={(e) => setNewSearch({
-                        ...newSearch,
-                        websites: { ...newSearch.websites, [site]: e.target.checked }
-                      })}
-                      className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
-                    />
-                    <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
-                  </label>
-                ))}
-              </div>
-              <button
-                onClick={addSearchConfig}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
-              >
-                Adicionar Configuração
-              </button>
-            </div>
-
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold">Configurações Ativas</h3>
-                <button
-                  onClick={() => toggleAllSearches(!globalSearchToggle)}
-                  className={`px-4 py-2 rounded-md font-medium transition-colors ${globalSearchToggle
-                    ? 'bg-red-600 hover:bg-red-700 text-white'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                    }`}
-                >
-                  {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
-                </button>
-              </div>
-              <div className="flex gap-4 mb-4">
-                <select
-                  value={configFilters.category}
-                  onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
-                  className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="">Todas Categorias</option>
-                  {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-                <select
-                  value={configFilters.website}
-                  onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
-                  className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="">Todos Sites</option>
-                  <option value="kabum">Kabum</option>
-                  <option value="pichau">Pichau</option>
-                  <option value="terabyte">Terabyte</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {getFilteredConfigs.map(config => (
-                  <div key={config.id} className="bg-gray-700 rounded-lg p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-medium">{config.search_text}</span>
-                      <button
-                        onClick={() => deleteSearchConfig(config.id)}
-                        className="text-red-400 hover:text-red-300"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                    <div className="flex gap-2 mb-2">
-                      <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
-                      <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
-                      <button
-                        onClick={() => toggleSearchActive(config.id, config.is_active)}
-                        className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'
-                          }`}
-                      >
-                        {config.is_active ? 'Ativo' : 'Inativo'}
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {config.keywordGroups.map((group, idx) => (
-                        <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded">
-                          {group}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* Login Modal */}
-      {showLogin && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md animate-slide-up">
-            <h2 className="text-xl font-bold mb-4">Login Admin</h2>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <input
-                type="email"
-                placeholder="Email"
-                value={loginCreds.email}
-                onChange={(e) => setLoginCreds({ ...loginCreds, email: e.target.value })}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                required
-              />
-              <input
-                type="password"
-                placeholder="Senha"
-                value={loginCreds.password}
-                onChange={(e) => setLoginCreds({ ...loginCreds, password: e.target.value })}
-                className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                required
-              />
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
-                >
-                  Entrar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowLogin(false)}
-                  className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-md font-medium transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
 
-      {/* Price History Modal - Melhorado com Intervalos */}
+      {activeTab === 'builds' && (
+        <div className="space-y-6 animate-fade-in">
+          {userRole === 'admin' && (
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-lg font-bold mb-4">Nova Build</h3>
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Nome da Build"
+                  value={newBuild.name}
+                  onChange={(e) => setNewBuild({ ...newBuild, name: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {allCategories.map(category => (
+                    <label key={category} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newBuild.categories.includes(category)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewBuild({ ...newBuild, categories: [...newBuild.categories, category] });
+                          } else {
+                            setNewBuild({ ...newBuild, categories: newBuild.categories.filter(c => c !== category) });
+                          }
+                        }}
+                        className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
+                      />
+                      <span className="text-sm">{category.replace('_', ' ').toUpperCase()}</span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={createBuild}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
+                >
+                  Criar Build
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {builds.map(build => (
+              <div key={build.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">{build.name}</h3>
+                  <div className="flex items-center space-x-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={build.auto_refresh !== false}
+                        onChange={(e) => toggleBuildAutoRefresh(build.id, e.target.checked)}
+                        className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-sm">Auto</span>
+                    </label>
+                    {userRole === 'admin' && (
+                      <button
+                        onClick={() => deleteBuild(build.id)}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {build.categories.map(category => {
+                    const product = getBuildProduct(build, category);
+                    const isOverride = build.product_overrides?.[category];
+                    const quantity = build.product_quantities?.[category] || 1;
+
+                    return product ? (
+                      <div key={category} className="bg-gray-700 rounded p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
+                            <p className="text-sm font-medium truncate max-w-[200px]">{product.name}</p>
+                            <p className="text-xs text-gray-500 capitalize">{product.website}</p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className="text-right">
+                              <span className="font-bold text-purple-400">
+                                R$ {(product.currentPrice * quantity).toFixed(2)}
+                              </span>
+                              {quantity > 1 && (
+                                <p className="text-xs text-gray-400">
+                                  {quantity}x R$ {product.currentPrice.toFixed(2)}
+                                </p>
+                              )}
+                            </div>
+                            {isOverride && <span className="text-xs text-yellow-400">✏️</span>}
+
+                            <button
+                              onClick={() => showPriceModal(product)}
+                              className="text-gray-400 hover:text-white transition-colors"
+                              title="Ver gráfico de preços"
+                            >
+                              📊
+                            </button>
+
+                            <a
+                              href={product.product_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-400 hover:text-white transition-colors"
+                              title="Ver no site"
+                            >
+                              🔗
+                            </a>
+
+                            <button
+                              onClick={() => setBuildProductModal({ buildId: build.id, category, currentProduct: product })}
+                              className="text-gray-400 hover:text-white transition-colors"
+                              title="Trocar produto"
+                            >
+                              ⚙️
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <div>
+                            {product.priceChange !== 0 && (
+                              <div className="flex items-center space-x-2">
+                                <span className="text-xs text-gray-400">Variação 24h:</span>
+                                <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
+                                </span>
+                                {product.previousPrice && product.previousPrice !== product.currentPrice && (
+                                  <span className="text-xs text-gray-500 line-through">
+                                    R$ {(product.previousPrice * quantity).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs text-gray-400">Qtd:</span>
+                            <QuantityControl
+                              quantity={quantity}
+                              onIncrease={() => updateProductQuantity(build.id, category, quantity + 1)}
+                              onDecrease={() => updateProductQuantity(build.id, category, quantity - 1)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div key={category} className="bg-gray-700 rounded p-3 border-2 border-dashed border-gray-600">
+                        <p className="text-xs text-gray-400 uppercase">{category.replace('_', ' ')}</p>
+                        <p className="text-sm text-gray-500 italic">Nenhum produto encontrado</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-600">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xl font-bold text-purple-400">
+                      Total: R$ {calculateBuildTotal(build).toFixed(2)}
+                    </p>
+                    <div className="text-right text-xs text-gray-400">
+                      {build.categories.reduce((total, category) => {
+                        const quantity = build.product_quantities?.[category] || 1;
+                        return total + quantity;
+                      }, 0)} item(s) • {build.categories.length} categoria(s)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'products' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="flex flex-wrap gap-4">
+              <input
+                type="text"
+                placeholder="Buscar produtos..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="flex-1 min-w-[200px] px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="price">Preço</option>
+                <option value="category">Categoria</option>
+                <option value="drop">Maior Queda %</option>
+              </select>
+              <button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-md transition-colors"
+              >
+                {sortOrder === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p className="text-sm text-gray-400 mb-2">Filtrar por categoria:</p>
+                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                  {allCategories.map(category => (
+                    <label key={category} className="flex items-center space-x-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategories.includes(category)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCategories([...selectedCategories, category]);
+                          } else {
+                            setSelectedCategories(selectedCategories.filter(c => c !== category));
+                          }
+                        }}
+                        className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-xs">{category.replace('_', ' ').toUpperCase()}</span>
+                    </label>
+                  ))}
+                </div>
+                {selectedCategories.length > 0 && (
+                  <button
+                    onClick={() => setSelectedCategories([])}
+                    className="text-xs text-purple-400 hover:text-purple-300 mt-2"
+                  >
+                    Limpar categorias
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm text-gray-400 mb-2">Filtrar por website:</p>
+                <div className="flex flex-wrap gap-2">
+                  {allWebsites.map(website => (
+                    <label key={website} className="flex items-center space-x-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedWebsites.includes(website)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedWebsites([...selectedWebsites, website]);
+                          } else {
+                            setSelectedWebsites(selectedWebsites.filter(w => w !== website));
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+                      />
+                      <span className="text-xs capitalize">{website}</span>
+                    </label>
+                  ))}
+                </div>
+                {selectedWebsites.length > 0 && (
+                  <button
+                    onClick={() => setSelectedWebsites([])}
+                    className="text-xs text-blue-400 hover:text-blue-300 mt-2"
+                  >
+                    Limpar websites
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {(selectedCategories.length > 0 || selectedWebsites.length > 0 || searchTerm) && (
+              <div className="mt-4 p-3 bg-gray-700 rounded-md">
+                <p className="text-sm text-gray-300">
+                  Mostrando {getSortedProducts.length} produto(s)
+                  {searchTerm && ` com "${searchTerm}"`}
+                  {selectedCategories.length > 0 && ` em ${selectedCategories.length} categoria(s)`}
+                  {selectedWebsites.length > 0 && ` de ${selectedWebsites.length} website(s)`}
+                </p>
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedCategories([]);
+                    setSelectedWebsites([]);
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 mt-1"
+                >
+                  Limpar todos os filtros
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {getSortedProducts.map(product => (
+              <div key={product.id} className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-purple-500 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-xs bg-purple-600 px-2 py-1 rounded">
+                    {product.category.replace('_', ' ').toUpperCase()}
+                  </span>
+                  <span className="text-xs text-gray-400 capitalize">{product.website}</span>
+                </div>
+                <h4 className="text-sm font-medium mb-3 line-clamp-2 max-w-[220px] truncate">{product.name}</h4>
+                <div className="flex justify-between items-end">
+                  <div>
+                    <p className="text-xl font-bold text-purple-400">R$ {product.currentPrice.toFixed(2)}</p>
+                    {product.priceChange !== 0 && (
+                      <p className={`text-xs ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {product.priceChange.toFixed(1)}%
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => showPriceModal(product)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      📊
+                    </button>
+                    <a
+                      href={product.product_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-white"
+                    >
+                      🔗
+                    </a>
+                    {userRole === 'admin' && (
+                      <button
+                        onClick={() => deleteProduct(product.id, product.name)}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'admin' && userRole === 'admin' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <h3 className="text-lg font-bold mb-4">Nova Configuração de Busca</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <input
+                type="text"
+                placeholder="Termo de busca"
+                value={newSearch.search_text}
+                onChange={(e) => setNewSearch({ ...newSearch, search_text: e.target.value })}
+                className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <input
+                type="text"
+                placeholder="Categoria"
+                value={newSearch.category}
+                onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
+                className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div className="space-y-2 mb-4">
+              <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
+              {newSearch.keywordGroups.map((group, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="ex: x3d,5500,processador"
+                    value={group}
+                    onChange={(e) => {
+                      const updated = [...newSearch.keywordGroups];
+                      updated[idx] = e.target.value;
+                      setNewSearch({ ...newSearch, keywordGroups: updated });
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  {newSearch.keywordGroups.length > 1 && (
+                    <button
+                      onClick={() => {
+                        setNewSearch({
+                          ...newSearch,
+                          keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
+                        });
+                      }}
+                      className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-md transition-colors"
+              >
+                + Adicionar Grupo
+              </button>
+            </div>
+            <div className="flex gap-4 mb-4">
+              {Object.keys(newSearch.websites).map(site => (
+                <label key={site} className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newSearch.websites[site]}
+                    onChange={(e) => setNewSearch({
+                      ...newSearch,
+                      websites: { ...newSearch.websites, [site]: e.target.checked }
+                    })}
+                    className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded"
+                  />
+                  <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
+                </label>
+              ))}
+            </div>
+            <button
+              onClick={addSearchConfig}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors"
+            >
+              Adicionar Configuração
+            </button>
+          </div>
+
+          <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold">Configurações Ativas</h3>
+              <button
+                onClick={() => toggleAllSearches(!globalSearchToggle)}
+                className={`px-4 py-2 rounded-md font-medium transition-colors ${globalSearchToggle
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                  : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+              >
+                {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
+              </button>
+            </div>
+            <div className="flex gap-4 mb-4">
+              <select
+                value={configFilters.category}
+                onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
+                className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="">Todas Categorias</option>
+                {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <select
+                value={configFilters.website}
+                onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
+                className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="">Todos Sites</option>
+                <option value="kabum">Kabum</option>
+                <option value="pichau">Pichau</option>
+                <option value="terabyte">Terabyte</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {getFilteredConfigs().map(config => (
+                <div key={config.id} className="bg-gray-700 rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-medium">{config.search_text}</span>
+                    <button
+                      onClick={() => deleteSearchConfig(config.id)}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
+                    <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
+                    <button
+                      onClick={() => toggleSearchActive(config.id, config.is_active)}
+                      className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'}`}
+                    >
+                      {config.is_active ? 'Ativo' : 'Inativo'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {config.keywordGroups.map((group, idx) => (
+                      <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded">
+                        {group}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Price History Modal */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-5xl max-h-[95vh] overflow-auto animate-slide-up">
@@ -1394,7 +868,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Seletor de Intervalo */}
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
               <p className="text-sm text-gray-400 mb-2">
                 Intervalo de tempo: <span className="text-gray-300">intervalo(período total)</span>
@@ -1412,7 +885,7 @@ export default function Home() {
                     className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${chartInterval === interval.value
                       ? 'bg-purple-600 text-white'
                       : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                      }`}
+                    }`}
                     title={interval.desc}
                   >
                     {interval.label}
@@ -1478,7 +951,7 @@ export default function Home() {
                     <div
                       key={product.id}
                       className={`bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors ${product.id === buildProductModal.currentProduct.id ? 'ring-2 ring-purple-500' : ''
-                        }`}
+                      }`}
                       onClick={() => updateBuildProduct(buildProductModal.buildId, buildProductModal.category, product.id)}
                     >
                       <p className="font-medium text-sm mb-1 truncate max-w-[250px]">{product.name}</p>
@@ -1493,6 +966,6 @@ export default function Home() {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 }
