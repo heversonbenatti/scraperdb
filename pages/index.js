@@ -3,7 +3,7 @@ import { Layout } from "@/components/Layout";
 import { PriceChart } from "@/components/PriceChart";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
-import { supabaseClient } from "/utils/supabase";
+import { supabaseClient } from "@/utils/supabase";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
@@ -323,38 +323,61 @@ export default function Home() {
         <div className="space-y-8 animate-fade-in">
           <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
             <h2 className="text-2xl font-bold mb-6 flex items-center">
-              <span className="mr-2">📉</span> Maiores Quedas de Preço (24h)
+              <span className="mr-2">🔥</span> Melhores Promoções (Baseado em 60 dias de histórico)
             </h2>
             <div className="space-y-3">
-              {topDrops.map((product, idx) => (
-                <div key={product.id} className="bg-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between hover:bg-gray-600 transition-colors rounded-lg p-2">
-                    <div className="flex items-center space-x-4">
-                      <span className="text-2xl font-bold text-gray-400">#{idx + 1}</span>
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        <p className="text-sm text-gray-400">{product.category} • {product.website}</p>
+              {topDrops.length > 0 ? (
+                topDrops.map((product, idx) => (
+                  <div key={product.id} className="bg-gray-700 rounded-lg p-4">
+                    <div className="flex items-center justify-between hover:bg-gray-600 transition-colors rounded-lg p-2">
+                      <div className="flex items-center space-x-4">
+                        <span className="text-2xl font-bold text-gray-400">#{idx + 1}</span>
+                        <div>
+                          <p className="font-medium">{product.name}</p>
+                          <p className="text-sm text-gray-400">{product.category} • {product.website}</p>
+                          <div className="flex items-center space-x-2 mt-1">
+                            <span className="text-xs bg-purple-600 px-2 py-1 rounded">
+                              {product.priceHistory} preços analisados
+                            </span>
+                            {product.medianPrice && (
+                              <span className="text-xs text-gray-400">
+                                Mediana: R$ {product.medianPrice.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-green-400">R$ {product.currentPrice.toFixed(2)}</p>
-                        <p className="text-sm text-gray-400 line-through">R$ {product.previousPrice.toFixed(2)}</p>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-400">R$ {product.currentPrice.toFixed(2)}</p>
+                          {product.historicalLow && (
+                            <p className="text-xs text-gray-400">
+                              Menor histórico: R$ {product.historicalLow.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="bg-red-600 px-3 py-1 rounded-full">
+                          <span className="font-bold text-white">-{product.promotionScore}%</span>
+                        </div>
+                        <button
+                          onClick={() => showPriceModal(product)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                          title="Ver gráfico de preços"
+                        >
+                          📊
+                        </button>
                       </div>
-                      <div className="bg-green-600 px-3 py-1 rounded-full">
-                        <span className="font-bold">{product.priceChange.toFixed(1)}%</span>
-                      </div>
-                      <button
-                        onClick={() => showPriceModal(product)}
-                        className="text-gray-400 hover:text-white transition-colors"
-                        title="Ver gráfico de preços"
-                      >
-                        📊
-                      </button>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-gray-400">
+                  <p className="text-xl">🔍 Nenhuma promoção significativa encontrada</p>
+                  <p className="text-sm mt-2">
+                    Produtos precisam ter histórico de pelo menos 60 dias e desconto de 15%+ para aparecer aqui
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
