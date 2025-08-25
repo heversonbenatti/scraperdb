@@ -567,6 +567,23 @@ export default function Home() {
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                             {/* Info de mudança de preço */}
                             <div className="flex-1">
+                              {product.weightedAverage && product.weightedAverage !== product.currentPrice && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-gray-400">vs. Média Histórica:</span>
+                                  {(() => {
+                                    const realChange = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
+                                    return (
+                                      <span className={`text-xs font-medium ${realChange < 0 ? 'text-green-400' : 'text-red-400'
+                                        }`}>
+                                        {realChange > 0 ? '+' : ''}{realChange.toFixed(1)}%
+                                      </span>
+                                    );
+                                  })()}
+                                  <span className="text-xs text-gray-500 line-through">
+                                    R$ {(product.weightedAverage * quantity).toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
                               {product.priceChange !== 0 && (
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="text-xs text-gray-400">Variação 24h:</span>
@@ -574,11 +591,6 @@ export default function Home() {
                                     }`}>
                                     {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
                                   </span>
-                                  {product.previousPrice && product.previousPrice !== product.currentPrice && (
-                                    <span className="text-xs text-gray-500 line-through">
-                                      R$ {(product.previousPrice * quantity).toFixed(2)}
-                                    </span>
-                                  )}
                                 </div>
                               )}
                             </div>
@@ -803,9 +815,28 @@ export default function Home() {
                     <p className="text-lg sm:text-xl font-bold text-purple-400 break-words">
                       R$ {product.currentPrice.toFixed(2)}
                     </p>
-                    {product.priceChange !== 0 && (
-                      <p className={`text-xs ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {product.priceChange.toFixed(1)}%
+
+                    {/* Mostrar desconto real vs média histórica */}
+                    {product.weightedAverage && product.weightedAverage !== product.currentPrice && (
+                      (() => {
+                        const realChange = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
+                        return (
+                          <div className="flex items-center gap-1">
+                            <span className={`text-xs ${realChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {realChange > 0 ? '+' : ''}{realChange.toFixed(1)}%
+                            </span>
+                            <span className="text-xs text-gray-500 line-through">
+                              R$ {product.weightedAverage.toFixed(2)}
+                            </span>
+                          </div>
+                        );
+                      })()
+                    )}
+
+                    {/* Variação 24h como informação adicional */}
+                    {product.priceChange !== 0 && Math.abs(product.priceChange) >= 1 && (
+                      <p className={`text-xs ${product.priceChange < 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+                        24h: {product.priceChange.toFixed(1)}%
                       </p>
                     )}
                   </div>
@@ -1037,8 +1068,8 @@ export default function Home() {
                     key={interval.value}
                     onClick={() => handleIntervalChange(interval.value)}
                     className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors break-words ${chartInterval === interval.value
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
                       }`}
                     title={interval.desc}
                   >
