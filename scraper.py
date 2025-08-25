@@ -122,20 +122,113 @@ def normalize_price_pichau(price_text):
     except Exception as e:
         print(f"❌ Erro ao normalizar preço '{price_text}': {e}")
         return 0.0
-    
-def notify_price_drop_if_needed(product_name, old_price, new_price, website):
-    if new_price < old_price:  # Só notifica quedas
-        try:
-            bot = TelegramPriceBot()
-            message = f"🚨 QUEDA DE PREÇO!\n\n"
-            message += f"📱 {product_name}\n"
-            message += f"🏪 {website}\n"
-            message += f"💰 De R$ {old_price:.2f} para R$ {new_price:.2f}\n"
-            message += f"📉 Economia: R$ {old_price-new_price:.2f}"
+
+def calculate_weighted_average(product_id):
+    """
+    Calcula a média histórica ponderada EXCLUINDO o preço atual
+    Segue EXATAMENTE a mesma lógica do frontend
+    """
+    try:
+        with engine.begin() as conn:
+            # Buscar TODO o histórico de preços para este produto, ordenado por data
+            query = select(
+                prices.c.price,
+                prices.c.check_count,
+                prices.c.price_changed_at
+            ).where(
+                prices.c.product_id == product_id
+            ).order_by(prices.c.price_changed_at.desc())
             
-            asyncio.run(bot.send_message(message))
-        except Exception as e:
-            print(f"Erro ao enviar notificação: {e}")
+            all_prices = conn.execute(query).fetchall()
+            
+            if len(all_prices) <= 1:
+                # Se só tem o preço atual ou nenhum, não há histórico para calcular
+                return None
+            
+            # O primeiro é o preço atual, pegamos os históricos (excluindo o atual)
+            historical_prices = all_prices[1:]  # Remove o preço atual
+            
+            if not historical_prices:
+                return None
+            
+            # Calcular média ponderada usando check_count como peso
+            total_weight = sum(max(1, p.check_count or 1) for p in historical_prices)
+            weighted_sum = sum(float(p.price) * max(1, p.check_count or 1) for p in historical_prices)
+            
+            if total_weight > 0:
+                return weighted_sum / total_weight
+            else:
+                return None
+                
+    except Exception as e:
+        print(f"❌ Erro ao calcular média histórica: {e}")
+        return None
+
+def check_promotion_and_notify(product_id, product_name, current_price, website):
+    """
+    Verifica se é uma promoção real (>10% desconto vs média histórica) e notifica
+    """
+    try:
+        weighted_average = calculate_weighted_average(product_id)
+        
+        if not weighted_average or weighted_average == current_price:
+            print(f"📊 {product_name}: Sem histórico suficiente para calcular promoção")
+            return False
+        
+        # Calcular desconto exatamente como no frontend
+        discount_percent = ((weighted_average - current_price) / weighted_average) * 100
+        
+        print(f"📊 {product_name}: Preço atual R$ {current_price:.2f} vs Média histórica R$ {weighted_average:.2f}")
+        print(f"📊 Desconto calculado: {discount_percent:.1f}%")
+        
+        # Critérios para notificação (mesmo do frontend)
+        is_significant_discount = discount_percent >= 10  # Mínimo 10% para notificação
+        has_minimum_price = current_price >= 20  # Preço mínimo R$ 20
+        is_reasonable_discount = discount_percent <= 80  # Máximo 80% (evita erros)
+        discount_amount = weighted_average - current_price
+        
+        is_promotion = (is_significant_discount and 
+                       has_minimum_price and 
+                       is_reasonable_discount and 
+                       discount_amount > 0)
+        
+        if is_promotion:
+            print(f"🔥 PROMOÇÃO DETECTADA! {product_name} - {discount_percent:.1f}% desconto")
+            
+            # Enviar notificação do Telegram
+            try:
+                bot = TelegramPriceBot()
+                message = f"🔥 PROMOÇÃO REAL DETECTADA!\n\n"
+                message += f"📱 {product_name}\n"
+                message += f"🏪 {website.upper()}\n\n"
+                message += f"💰 Preço atual: R$ {current_price:.2f}\n"
+                message += f"📊 Média histórica: R$ {weighted_average:.2f}\n"
+                message += f"📉 Desconto: {discount_percent:.1f}%\n"
+                message += f"💵 Economia: R$ {discount_amount:.2f}"
+                
+                asyncio.run(bot.send_message(message))
+                print(f"✅ Notificação de promoção enviada!")
+                return True
+            except Exception as e:
+                print(f"❌ Erro ao enviar notificação de promoção: {e}")
+        else:
+            reasons = []
+            if not is_significant_discount:
+                reasons.append(f"desconto insuficiente ({discount_percent:.1f}% < 10%)")
+            if not has_minimum_price:
+                reasons.append(f"preço muito baixo (R$ {current_price:.2f} < R$ 20)")
+            if not is_reasonable_discount:
+                reasons.append(f"desconto suspeito ({discount_percent:.1f}% > 80%)")
+            if discount_amount <= 0:
+                reasons.append("preço atual >= média")
+            
+            print(f"⚪ Não é promoção: {', '.join(reasons)}")
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Erro ao verificar promoção: {e}")
+        return False
 
 def save_product(name, price, website, category, product_link, keywords_matched=None):
     if price > 10.0:
@@ -215,16 +308,11 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         percentage = (price_diff / last_price) * 100
                         print(f"📈 Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
                         
-                        # 🚨 TELEGRAM: Só notifica se NÃO for da mesma busca
+                        # 🚨 NOVA LÓGICA: Só verifica promoção se NÃO for da mesma busca
                         if not is_same_search:
-                            notify_price_drop_if_needed(
-                                product_name=name,
-                                old_price=last_price,
-                                new_price=current_price,
-                                website=website
-                            )
+                            check_promotion_and_notify(product_id, name, current_price, website)
                         else:
-                            print(f"💡 Mudança na mesma busca - notificação ignorada")
+                            print(f"💡 Mudança na mesma busca - verificação de promoção ignorada")
                         
                     else:
                         # Preço igual - apenas atualizar last_checked_at e incrementar contador
