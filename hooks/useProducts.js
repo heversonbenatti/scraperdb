@@ -149,10 +149,10 @@ export const useProducts = () => {
         const promotionalProducts = await Promise.all(
             productsWithPrices.map(async (product) => {
                 try {
-                    // Buscar histórico baseado no período selecionado
+                    // Buscar histórico baseado no período selecionado (incluindo check_count)
                     let query = supabaseClient
                         .from('prices')
-                        .select('price, price_changed_at')
+                        .select('price, price_changed_at, check_count')
                         .eq('product_id', product.id)
                         .order('price_changed_at', { ascending: false });
 
@@ -169,49 +169,67 @@ export const useProducts = () => {
                     }
 
                     const prices = historicalPrices.map(p => parseFloat(p.price)).filter(p => p > 0);
+                    const pricesWithWeight = historicalPrices.map(p => ({
+                        price: parseFloat(p.price),
+                        weight: Math.max(1, p.check_count || 1), // Peso baseado no check_count
+                        date: p.price_changed_at
+                    })).filter(p => p.price > 0);
+
                     const currentPrice = product.currentPrice;
 
-                    if (prices.length < minDataPoints) {
+                    if (prices.length < minDataPoints || pricesWithWeight.length < minDataPoints) {
                         return { ...product, isPromotion: false, promotionScore: 0, period };
                     }
 
-                    // **FIX: Calcular baseline excluindo o preço atual para evitar picos temporários**
-                    const pricesExcludingCurrent = prices.slice(1); // Remove o primeiro (atual)
+                    // **FIX: Calcular baseline considerando o peso (check_count) dos preços**
+                    const historicalPricesWithWeight = pricesWithWeight.slice(1); // Remove o primeiro (atual)
 
-                    if (pricesExcludingCurrent.length === 0) {
+                    if (historicalPricesWithWeight.length === 0) {
                         return { ...product, isPromotion: false, promotionScore: 0, period };
                     }
 
                     let baseline, discountThreshold;
 
                     if (period === '24h') {
-                        // Para 24h, usa o preço mais alto (excluindo atual) como baseline
-                        baseline = Math.max(...pricesExcludingCurrent);
-                        discountThreshold = 5; // 5% mínimo para 24h
+                        // Para 24h, usa preço ponderado mais comum (maior peso)
+                        const maxWeight = Math.max(...historicalPricesWithWeight.map(p => p.weight));
+                        const stablePrices = historicalPricesWithWeight.filter(p => p.weight >= maxWeight * 0.5);
+                        baseline = stablePrices.length > 0 ?
+                            Math.max(...stablePrices.map(p => p.price)) :
+                            Math.max(...historicalPricesWithWeight.map(p => p.price));
+                        discountThreshold = 5;
                     } else {
-                        // Para períodos maiores, usa mediana dos preços históricos (excluindo atual)
-                        const sortedHistoricalPrices = [...pricesExcludingCurrent].sort((a, b) => a - b);
-                        baseline = sortedHistoricalPrices[Math.floor(sortedHistoricalPrices.length / 2)];
-                        discountThreshold = period === '1w' ? 8 : 10; // 8% para semana, 10% para mês+
+                        // Para períodos maiores, usa média ponderada dos preços estáveis
+                        const totalWeight = historicalPricesWithWeight.reduce((sum, p) => sum + p.weight, 0);
+                        const weightedSum = historicalPricesWithWeight.reduce((sum, p) => sum + (p.price * p.weight), 0);
+                        baseline = weightedSum / totalWeight;
+                        discountThreshold = period === '1w' ? 8 : 10;
                     }
 
-                    // **FIX: Verificar se o baseline é significativamente maior que o preço atual**
+                    // **FIX: Verificar estabilidade usando check_count**
                     const discountPercent = ((baseline - currentPrice) / baseline) * 100;
 
-                    // **FIX: Adicionar validação para evitar descontos irreais**
-                    // Se o desconto for maior que 50%, considerar suspeito e precisar de mais validação
-                    if (discountPercent > 50) {
-                        // Contar quantas vezes o produto teve preço similar ao baseline
-                        const baselineTolerance = baseline * 0.1; // 10% de tolerância
-                        const highPriceCount = pricesExcludingCurrent.filter(p =>
-                            Math.abs(p - baseline) <= baselineTolerance
-                        ).length;
+                    // **FIX: Validação adicional baseada na estabilidade dos preços**
+                    if (discountPercent > 30) {
+                        // Se desconto > 30%, verificar se os preços altos foram estáveis
+                        const currentPriceWeight = pricesWithWeight[0]?.weight || 1;
+                        const avgHistoricalWeight = historicalPricesWithWeight.length > 0 ?
+                            historicalPricesWithWeight.reduce((sum, p) => sum + p.weight, 0) / historicalPricesWithWeight.length : 1;
 
-                        // Se o preço alto apareceu apenas uma vez, provavelmente foi erro
-                        if (highPriceCount === 1 && pricesExcludingCurrent.length > 2) {
-                            // Usar o segundo maior preço como baseline
-                            const sortedPrices = [...pricesExcludingCurrent].sort((a, b) => b - a);
-                            baseline = sortedPrices[1] || baseline;
+                        // Se o preço atual tem muito mais verificações que os históricos, pode ser erro nos históricos
+                        if (currentPriceWeight > avgHistoricalWeight * 3) {
+                            return { ...product, isPromotion: false, promotionScore: 0, period };
+                        }
+
+                        // Verificar se existem preços próximos ao atual com bom peso
+                        const currentPriceTolerance = currentPrice * 0.1; // 10% de tolerância
+                        const similarStablePrices = historicalPricesWithWeight.filter(p =>
+                            Math.abs(p.price - currentPrice) <= currentPriceTolerance && p.weight >= 2
+                        );
+
+                        // Se há preços similares e estáveis ao atual, provavelmente não é promoção
+                        if (similarStablePrices.length > 0) {
+                            return { ...product, isPromotion: false, promotionScore: 0, period };
                         }
                     }
 
@@ -219,16 +237,18 @@ export const useProducts = () => {
                     const historicalLow = Math.min(...prices);
                     const historicalHigh = Math.max(...prices);
 
-                    // Critérios ajustados por período
+                    // Critérios ajustados considerando estabilidade
                     const isSignificantDiscount = finalDiscountPercent >= discountThreshold;
                     const hasMinimumPrice = currentPrice >= (period === '24h' ? 20 : 50);
-                    const isNearLow = currentPrice <= historicalLow * 1.15; // Até 15% acima do mínimo
+                    const isNearLow = currentPrice <= historicalLow * 1.15;
+                    const isReasonableDiscount = finalDiscountPercent <= 70; // Máximo 70% considerando estabilidade
 
-                    // **FIX: Adicionar critério de estabilidade de preço**
-                    const isReasonableDiscount = finalDiscountPercent <= 80; // Máximo 80% de desconto
+                    // **FIX: Verificar se o preço atual tem estabilidade mínima**
+                    const currentStability = pricesWithWeight[0]?.weight || 1;
+                    const hasMinimumStability = currentStability >= 1;
 
                     const isPromotion = isSignificantDiscount && hasMinimumPrice &&
-                        (isNearLow || prices.length >= 5) && isReasonableDiscount;
+                        (isNearLow || prices.length >= 5) && isReasonableDiscount && hasMinimumStability;
 
                     return {
                         ...product,
