@@ -1016,7 +1016,7 @@ export default function Home() {
       {/* Price History Modal - RESPONSIVO */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-5xl max-h-[95vh] overflow-auto animate-slide-up">
+          <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-6xl max-h-[95vh] overflow-auto animate-slide-up">
             <div className="flex justify-between items-center mb-4">
               <div className="min-w-0 flex-1 pr-4">
                 <h3 className="text-lg sm:text-xl font-bold">Histórico de Preços</h3>
@@ -1062,9 +1062,53 @@ export default function Home() {
               </div>
             </div>
 
-            <PriceChart data={priceHistory} />
+            {/* Grid com gráfico e lista */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
+              {/* Gráfico - ocupa 2 colunas no desktop */}
+              <div className="lg:col-span-2">
+                <PriceChart data={priceHistory} />
+              </div>
 
-            <div className="mt-6 flex flex-col sm:flex-row gap-4">
+              {/* Lista do histórico - ocupa 1 coluna */}
+              <div className="bg-gray-700 rounded-lg p-4">
+                <h5 className="text-sm font-bold text-gray-300 mb-3 border-b border-gray-600 pb-2">
+                  Histórico de Mudanças ({priceHistory.length})
+                </h5>
+                <div className="max-h-80 overflow-y-auto space-y-2">
+                  {priceHistory.length > 0 ? (
+                    [...priceHistory].reverse().map((entry, idx) => (
+                      <div key={idx} className="flex justify-between items-start text-xs border-b border-gray-600 pb-2 last:border-b-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-purple-400">
+                            R$ {entry.price.toFixed(2)}
+                          </p>
+                          <p className="text-gray-400 text-xs break-words">
+                            {new Date(entry.price_changed_at || entry.collected_at).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        {idx > 0 && (
+                          <div className="flex-shrink-0 ml-2">
+                            {entry.price < priceHistory[priceHistory.length - idx - 1]?.price ? (
+                              <span className="text-green-400 text-xs">↓</span>
+                            ) : entry.price > priceHistory[priceHistory.length - idx - 1]?.price ? (
+                              <span className="text-red-400 text-xs">↑</span>
+                            ) : (
+                              <span className="text-gray-500 text-xs">-</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-gray-400">
+                      <p className="text-sm">Nenhum histórico disponível</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4">
               <a
                 href={selectedProduct.product_link}
                 target="_blank"
@@ -1088,7 +1132,7 @@ export default function Home() {
           </div>
         </div>
       )}
-
+      
       {/* Build Product Selection Modal - RESPONSIVO */}
       {buildProductModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
