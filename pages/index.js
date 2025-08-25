@@ -584,15 +584,6 @@ export default function Home() {
                                   </span>
                                 </div>
                               )}
-                              {product.priceChange !== 0 && (
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-xs text-gray-400">Variação 24h:</span>
-                                  <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'
-                                    }`}>
-                                    {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
-                                  </span>
-                                </div>
-                              )}
                             </div>
 
                             {/* Controles */}
@@ -831,13 +822,6 @@ export default function Home() {
                           </div>
                         );
                       })()
-                    )}
-
-                    {/* Variação 24h como informação adicional */}
-                    {product.priceChange !== 0 && Math.abs(product.priceChange) >= 1 && (
-                      <p className={`text-xs ${product.priceChange < 0 ? 'text-blue-400' : 'text-orange-400'}`}>
-                        24h: {product.priceChange.toFixed(1)}%
-                      </p>
                     )}
                   </div>
 
