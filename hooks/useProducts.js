@@ -169,42 +169,71 @@ export const useProducts = () => {
                     }
 
                     const prices = historicalPrices.map(p => parseFloat(p.price)).filter(p => p > 0);
+                    const currentPrice = product.currentPrice;
 
                     if (prices.length < minDataPoints) {
                         return { ...product, isPromotion: false, promotionScore: 0, period };
                     }
 
-                    // Calcular estatísticas baseadas no período
-                    const sortedPrices = [...prices].sort((a, b) => a - b);
-                    const currentPrice = product.currentPrice;
+                    // **FIX: Calcular baseline excluindo o preço atual para evitar picos temporários**
+                    const pricesExcludingCurrent = prices.slice(1); // Remove o primeiro (atual)
+
+                    if (pricesExcludingCurrent.length === 0) {
+                        return { ...product, isPromotion: false, promotionScore: 0, period };
+                    }
 
                     let baseline, discountThreshold;
 
                     if (period === '24h') {
-                        // Para 24h, usa o preço mais alto como baseline (mais simples)
-                        baseline = Math.max(...prices);
+                        // Para 24h, usa o preço mais alto (excluindo atual) como baseline
+                        baseline = Math.max(...pricesExcludingCurrent);
                         discountThreshold = 5; // 5% mínimo para 24h
                     } else {
-                        // Para períodos maiores, usa mediana
-                        baseline = sortedPrices[Math.floor(sortedPrices.length / 2)];
+                        // Para períodos maiores, usa mediana dos preços históricos (excluindo atual)
+                        const sortedHistoricalPrices = [...pricesExcludingCurrent].sort((a, b) => a - b);
+                        baseline = sortedHistoricalPrices[Math.floor(sortedHistoricalPrices.length / 2)];
                         discountThreshold = period === '1w' ? 8 : 10; // 8% para semana, 10% para mês+
                     }
 
+                    // **FIX: Verificar se o baseline é significativamente maior que o preço atual**
                     const discountPercent = ((baseline - currentPrice) / baseline) * 100;
+
+                    // **FIX: Adicionar validação para evitar descontos irreais**
+                    // Se o desconto for maior que 50%, considerar suspeito e precisar de mais validação
+                    if (discountPercent > 50) {
+                        // Contar quantas vezes o produto teve preço similar ao baseline
+                        const baselineTolerance = baseline * 0.1; // 10% de tolerância
+                        const highPriceCount = pricesExcludingCurrent.filter(p =>
+                            Math.abs(p - baseline) <= baselineTolerance
+                        ).length;
+
+                        // Se o preço alto apareceu apenas uma vez, provavelmente foi erro
+                        if (highPriceCount === 1 && pricesExcludingCurrent.length > 2) {
+                            // Usar o segundo maior preço como baseline
+                            const sortedPrices = [...pricesExcludingCurrent].sort((a, b) => b - a);
+                            baseline = sortedPrices[1] || baseline;
+                        }
+                    }
+
+                    const finalDiscountPercent = ((baseline - currentPrice) / baseline) * 100;
                     const historicalLow = Math.min(...prices);
                     const historicalHigh = Math.max(...prices);
 
                     // Critérios ajustados por período
-                    const isSignificantDiscount = discountPercent >= discountThreshold;
+                    const isSignificantDiscount = finalDiscountPercent >= discountThreshold;
                     const hasMinimumPrice = currentPrice >= (period === '24h' ? 20 : 50);
                     const isNearLow = currentPrice <= historicalLow * 1.15; // Até 15% acima do mínimo
 
-                    const isPromotion = isSignificantDiscount && hasMinimumPrice && (isNearLow || prices.length >= 5);
+                    // **FIX: Adicionar critério de estabilidade de preço**
+                    const isReasonableDiscount = finalDiscountPercent <= 80; // Máximo 80% de desconto
+
+                    const isPromotion = isSignificantDiscount && hasMinimumPrice &&
+                        (isNearLow || prices.length >= 5) && isReasonableDiscount;
 
                     return {
                         ...product,
                         isPromotion,
-                        promotionScore: Math.round(Math.max(0, discountPercent)),
+                        promotionScore: Math.round(Math.max(0, finalDiscountPercent)),
                         baseline,
                         historicalLow,
                         historicalHigh,
