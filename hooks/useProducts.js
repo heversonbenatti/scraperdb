@@ -32,7 +32,6 @@ export const useProducts = () => {
     // Estados para configurações de busca
     const [configFilters, setConfigFilters] = useState({ category: '', website: '' });
     const [globalSearchToggle, setGlobalSearchToggle] = useState(true);
-    const [promotionPeriod, setPromotionPeriod] = useState('24h'); // Novo estado para período das promoções
     const [newSearch, setNewSearch] = useState({
         search_text: '',
         keywordGroups: [''],
@@ -42,7 +41,6 @@ export const useProducts = () => {
     });
 
     useEffect(() => {
-        // Só executa no cliente (não no SSR)
         if (typeof window === 'undefined') return;
 
         fetchInitialData();
@@ -68,7 +66,6 @@ export const useProducts = () => {
     }, []);
 
     const fetchInitialData = async () => {
-        // Só executa no cliente
         if (typeof window === 'undefined') return;
 
         try {
@@ -107,8 +104,8 @@ export const useProducts = () => {
 
             setProducts(productsWithPrices.filter(p => p.currentPrice > 0));
 
-            // Nova lógica de promoções melhorada
-            const promotionalProducts = await calculatePromotions(productsWithPrices.filter(p => p.currentPrice > 0), promotionPeriod);
+            // ✅ Nova chamada simplificada
+            const promotionalProducts = await calculatePromotions(productsWithPrices.filter(p => p.currentPrice > 0));
             setTopDrops(promotionalProducts);
 
             await fetchSearchConfigs();
@@ -119,161 +116,107 @@ export const useProducts = () => {
         }
     };
 
-    const calculatePromotions = async (productsWithPrices, period = '24h') => {
-        // Definir período em milissegundos
-        let timeRange;
-        let minDataPoints = 2; // Mínimo de pontos de dados necessários
-
-        switch (period) {
-            case '24h':
-                timeRange = 24 * 60 * 60 * 1000; // 24 horas
-                minDataPoints = 2;
-                break;
-            case '1w':
-                timeRange = 7 * 24 * 60 * 60 * 1000; // 1 semana
-                minDataPoints = 3;
-                break;
-            case '1m':
-                timeRange = 30 * 24 * 60 * 60 * 1000; // 30 dias
-                minDataPoints = 5;
-                break;
-            case 'all':
-                timeRange = null; // Sem limite de tempo
-                minDataPoints = 3;
-                break;
-            default:
-                timeRange = 24 * 60 * 60 * 1000;
-                minDataPoints = 2;
-        }
-
+    const calculatePromotions = async (productsWithPrices) => {
         const promotionalProducts = await Promise.all(
             productsWithPrices.map(async (product) => {
                 try {
-                    // Buscar histórico baseado no período selecionado (incluindo check_count)
-                    let query = supabaseClient
+                    // Buscar TODO o histórico de preços do produto (incluindo check_count)
+                    const { data: historicalPrices } = await supabaseClient
                         .from('prices')
                         .select('price, price_changed_at, check_count')
                         .eq('product_id', product.id)
                         .order('price_changed_at', { ascending: false });
 
-                    // Aplicar filtro de tempo se não for "desde sempre"
-                    if (timeRange) {
-                        const startDate = new Date(Date.now() - timeRange).toISOString();
-                        query = query.gte('price_changed_at', startDate);
+                    if (!historicalPrices || historicalPrices.length < 2) {
+                        return { ...product, isPromotion: false, promotionScore: 0, reason: 'Dados insuficientes' };
                     }
 
-                    const { data: historicalPrices } = await query;
-
-                    if (!historicalPrices || historicalPrices.length < minDataPoints) {
-                        return { ...product, isPromotion: false, promotionScore: 0, period };
-                    }
-
-                    const prices = historicalPrices.map(p => parseFloat(p.price)).filter(p => p > 0);
-                    const pricesWithWeight = historicalPrices.map(p => ({
+                    const prices = historicalPrices.map(p => ({
                         price: parseFloat(p.price),
-                        weight: Math.max(1, p.check_count || 1), // Peso baseado no check_count
+                        weight: Math.max(1, p.check_count || 1),
                         date: p.price_changed_at
                     })).filter(p => p.price > 0);
 
+                    if (prices.length < 2) {
+                        return { ...product, isPromotion: false, promotionScore: 0, reason: 'Preços inválidos' };
+                    }
+
                     const currentPrice = product.currentPrice;
 
-                    if (prices.length < minDataPoints || pricesWithWeight.length < minDataPoints) {
-                        return { ...product, isPromotion: false, promotionScore: 0, period };
+                    // Calcular preço médio ponderado histórico (excluindo o preço atual)
+                    const historicalPricesOnly = prices.slice(1); // Remove o primeiro (atual)
+
+                    if (historicalPricesOnly.length === 0) {
+                        return { ...product, isPromotion: false, promotionScore: 0, reason: 'Apenas um preço' };
                     }
 
-                    // **FIX: Calcular baseline considerando o peso (check_count) dos preços**
-                    const historicalPricesWithWeight = pricesWithWeight.slice(1); // Remove o primeiro (atual)
+                    const totalWeight = historicalPricesOnly.reduce((sum, p) => sum + p.weight, 0);
+                    const weightedSum = historicalPricesOnly.reduce((sum, p) => sum + (p.price * p.weight), 0);
+                    const weightedAverage = weightedSum / totalWeight;
 
-                    if (historicalPricesWithWeight.length === 0) {
-                        return { ...product, isPromotion: false, promotionScore: 0, period };
-                    }
+                    // Calcular o desconto real baseado na média ponderada
+                    const discountPercent = ((weightedAverage - currentPrice) / weightedAverage) * 100;
 
-                    let baseline, discountThreshold;
+                    // Critérios para ser considerado promoção:
+                    const isSignificantDiscount = discountPercent >= 5; // Mínimo 5% de desconto
+                    const hasMinimumPrice = currentPrice >= 20; // Preço mínimo R$ 20
+                    const hasEnoughHistory = historicalPricesOnly.length >= 2; // Pelo menos 2 registros históricos
+                    const isReasonableDiscount = discountPercent <= 80; // Máximo 80% (evita erros)
 
-                    if (period === '24h') {
-                        // Para 24h, usa preço ponderado mais comum (maior peso)
-                        const maxWeight = Math.max(...historicalPricesWithWeight.map(p => p.weight));
-                        const stablePrices = historicalPricesWithWeight.filter(p => p.weight >= maxWeight * 0.5);
-                        baseline = stablePrices.length > 0 ?
-                            Math.max(...stablePrices.map(p => p.price)) :
-                            Math.max(...historicalPricesWithWeight.map(p => p.price));
-                        discountThreshold = 5;
-                    } else {
-                        // Para períodos maiores, usa média ponderada dos preços estáveis
-                        const totalWeight = historicalPricesWithWeight.reduce((sum, p) => sum + p.weight, 0);
-                        const weightedSum = historicalPricesWithWeight.reduce((sum, p) => sum + (p.price * p.weight), 0);
-                        baseline = weightedSum / totalWeight;
-                        discountThreshold = period === '1w' ? 8 : 10;
-                    }
+                    // Validações adicionais para evitar falsos positivos
+                    const currentPriceWeight = prices[0]?.weight || 1;
+                    const avgHistoricalWeight = totalWeight / historicalPricesOnly.length;
 
-                    // **FIX: Verificar estabilidade usando check_count**
-                    const discountPercent = ((baseline - currentPrice) / baseline) * 100;
+                    // Se o preço atual tem muito mais verificações que a média histórica,
+                    // pode indicar que o preço se estabilizou no valor atual
+                    const weightRatio = currentPriceWeight / avgHistoricalWeight;
+                    const isPriceStable = weightRatio > 3; // Se atual tem 3x mais verificações
 
-                    // **FIX: Validação adicional baseada na estabilidade dos preços**
-                    if (discountPercent > 30) {
-                        // Se desconto > 30%, verificar se os preços altos foram estáveis
-                        const currentPriceWeight = pricesWithWeight[0]?.weight || 1;
-                        const avgHistoricalWeight = historicalPricesWithWeight.length > 0 ?
-                            historicalPricesWithWeight.reduce((sum, p) => sum + p.weight, 0) / historicalPricesWithWeight.length : 1;
+                    // Calcular estatísticas adicionais
+                    const historicalLow = Math.min(...prices.map(p => p.price));
+                    const historicalHigh = Math.max(...prices.map(p => p.price));
 
-                        // Se o preço atual tem muito mais verificações que os históricos, pode ser erro nos históricos
-                        if (currentPriceWeight > avgHistoricalWeight * 3) {
-                            return { ...product, isPromotion: false, promotionScore: 0, period };
-                        }
+                    // Verificar se está próximo do menor preço histórico
+                    const isNearHistoricalLow = currentPrice <= historicalLow * 1.1; // Até 10% acima do menor
 
-                        // Verificar se existem preços próximos ao atual com bom peso
-                        const currentPriceTolerance = currentPrice * 0.1; // 10% de tolerância
-                        const similarStablePrices = historicalPricesWithWeight.filter(p =>
-                            Math.abs(p.price - currentPrice) <= currentPriceTolerance && p.weight >= 2
-                        );
-
-                        // Se há preços similares e estáveis ao atual, provavelmente não é promoção
-                        if (similarStablePrices.length > 0) {
-                            return { ...product, isPromotion: false, promotionScore: 0, period };
-                        }
-                    }
-
-                    const finalDiscountPercent = ((baseline - currentPrice) / baseline) * 100;
-                    const historicalLow = Math.min(...prices);
-                    const historicalHigh = Math.max(...prices);
-
-                    // Critérios ajustados considerando estabilidade
-                    const isSignificantDiscount = finalDiscountPercent >= discountThreshold;
-                    const hasMinimumPrice = currentPrice >= (period === '24h' ? 20 : 50);
-                    const isNearLow = currentPrice <= historicalLow * 1.15;
-                    const isReasonableDiscount = finalDiscountPercent <= 70; // Máximo 70% considerando estabilidade
-
-                    // **FIX: Verificar se o preço atual tem estabilidade mínima**
-                    const currentStability = pricesWithWeight[0]?.weight || 1;
-                    const hasMinimumStability = currentStability >= 1;
-
-                    const isPromotion = isSignificantDiscount && hasMinimumPrice &&
-                        (isNearLow || prices.length >= 5) && isReasonableDiscount && hasMinimumStability;
+                    const isPromotion = isSignificantDiscount &&
+                        hasMinimumPrice &&
+                        hasEnoughHistory &&
+                        isReasonableDiscount &&
+                        !isPriceStable && // Não considerar se o preço atual está muito estável
+                        isNearHistoricalLow; // Deve estar próximo do menor preço
 
                     return {
                         ...product,
                         isPromotion,
-                        promotionScore: Math.round(Math.max(0, finalDiscountPercent)),
-                        baseline,
+                        promotionScore: Math.round(Math.max(0, discountPercent)),
+                        weightedAverage,
                         historicalLow,
                         historicalHigh,
+                        currentPriceWeight,
+                        avgHistoricalWeight,
                         priceHistory: prices.length,
-                        period,
-                        // Dados adicionais para interface
-                        priceRange: historicalHigh - historicalLow,
-                        discountAmount: baseline - currentPrice
+                        discountAmount: weightedAverage - currentPrice,
+                        reason: isPromotion ? 'Desconto real detectado' :
+                            !isSignificantDiscount ? 'Desconto insuficiente' :
+                                !hasMinimumPrice ? 'Preço muito baixo' :
+                                    !hasEnoughHistory ? 'Histórico insuficiente' :
+                                        !isReasonableDiscount ? 'Desconto suspeito' :
+                                            isPriceStable ? 'Preço estabilizado' :
+                                                !isNearHistoricalLow ? 'Não próximo ao menor preço' : 'Outros critérios'
                     };
                 } catch (error) {
                     console.error(`Error calculating promotion for product ${product.id}:`, error);
-                    return { ...product, isPromotion: false, promotionScore: 0, period };
+                    return { ...product, isPromotion: false, promotionScore: 0, reason: 'Erro no cálculo' };
                 }
             })
         );
 
+        // Retornar apenas produtos com promoção real, ordenados por desconto
         return promotionalProducts
             .filter(p => p.isPromotion)
             .sort((a, b) => b.promotionScore - a.promotionScore)
-            .slice(0, 10);
+            .slice(0, 15); // Top 15 promoções reais
     };
 
     const fetchSearchConfigs = async () => {
@@ -489,8 +432,6 @@ export const useProducts = () => {
         setGlobalSearchToggle,
         newSearch,
         setNewSearch,
-        promotionPeriod,
-        setPromotionPeriod,
 
         // Computed values
         getSortedProducts,
@@ -502,7 +443,6 @@ export const useProducts = () => {
         showPriceModal,
         handleIntervalChange,
         deleteProduct,
-        fetchInitialData,
-        calculatePromotions
+        fetchInitialData
     };
 };

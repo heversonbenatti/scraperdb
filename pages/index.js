@@ -57,19 +57,8 @@ export default function Home() {
     allWebsites,
     showPriceModal,
     handleIntervalChange,
-    deleteProduct,
-    promotionPeriod,
-    setPromotionPeriod,
-    calculatePromotions
+    deleteProduct
   } = useProducts();
-
-  // Função para recalcular promoções quando o período muda
-  const handlePeriodChange = async (newPeriod) => {
-    setPromotionPeriod(newPeriod);
-    const filteredProducts = products.filter(p => p.currentPrice > 0);
-    const newPromotions = await calculatePromotions(filteredProducts, newPeriod);
-    setTopDrops(newPromotions);
-  };
 
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
@@ -334,43 +323,27 @@ export default function Home() {
       {activeTab === 'home' && (
         <div className="space-y-6 sm:space-y-8 animate-fade-in">
           <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
-            {/* Cabeçalho com seletor de período - RESPONSIVO */}
+            {/* Cabeçalho simplificado */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
               <h2 className="text-xl sm:text-2xl font-bold flex items-center">
-                <span className="mr-2">🔥</span> Melhores Promoções
+                <span className="mr-2">🔥</span> Melhores Ofertas Reais
               </h2>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                <span className="text-sm text-gray-400">Período de análise:</span>
-                <select
-                  value={promotionPeriod}
-                  onChange={(e) => handlePeriodChange(e.target.value)}
-                  className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-0"
-                >
-                  <option value="24h">Últimas 24h</option>
-                  <option value="1w">Última semana</option>
-                  <option value="1m">Último mês</option>
-                  <option value="all">Desde sempre</option>
-                </select>
+              <div className="text-right text-sm text-gray-400">
+                {topDrops.length} oferta(s) encontrada(s)
               </div>
             </div>
 
-            {/* Informações do período atual - RESPONSIVO */}
+            {/* Informações sobre o cálculo */}
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
                 <div className="text-gray-300 break-words">
-                  {promotionPeriod === '24h' && '📊 Analisando preços das últimas 24 horas (mín. 2 registros, desconto mín. 5%)'}
-                  {promotionPeriod === '1w' && '📊 Analisando preços da última semana (mín. 3 registros, desconto mín. 8%)'}
-                  {promotionPeriod === '1m' && '📊 Analisando preços do último mês (mín. 5 registros, desconto mín. 10%)'}
-                  {promotionPeriod === 'all' && '📊 Analisando todo o histórico disponível (mín. 3 registros, desconto mín. 10%)'}
-                </div>
-                <div className="text-gray-400 text-right flex-shrink-0">
-                  {topDrops.length} promoção(ões) encontrada(s)
+                  📊 Baseado no preço médio histórico ponderado vs. preço atual (mín. 5% desconto, próximo ao menor preço histórico)
                 </div>
               </div>
             </div>
 
-            {/* Lista de promoções - RESPONSIVO */}
+            {/* Lista de ofertas */}
             <div className="space-y-3">
               {topDrops.length > 0 ? (
                 topDrops.map((product, idx) => (
@@ -380,7 +353,7 @@ export default function Home() {
                       <span className="text-xl sm:text-2xl font-bold text-gray-400 flex-shrink-0 self-start sm:self-center">
                         #{idx + 1}
                       </span>
-                      
+
                       <div className="min-w-0 flex-1">
                         {/* Product Info */}
                         <div className="mb-2">
@@ -391,15 +364,15 @@ export default function Home() {
                             {product.category} • {product.website}
                           </p>
                         </div>
-                        
+
                         {/* Tags e informações */}
                         <div className="flex flex-wrap gap-1 sm:gap-2 mb-2 sm:mb-0">
                           <span className="text-xs bg-purple-600 px-2 py-1 rounded">
                             {product.priceHistory} preços analisados
                           </span>
-                          {product.baseline && (
+                          {product.weightedAverage && (
                             <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
-                              {promotionPeriod === '24h' ? 'Máximo' : 'Base'}: R$ {product.baseline.toFixed(2)}
+                              Média: R$ {product.weightedAverage.toFixed(2)}
                             </span>
                           )}
                           {product.discountAmount && (
@@ -407,29 +380,27 @@ export default function Home() {
                               Economia: R$ {product.discountAmount.toFixed(2)}
                             </span>
                           )}
+                          {product.historicalLow && (
+                            <span className="text-xs text-blue-400 bg-gray-600 px-2 py-1 rounded">
+                              Menor: R$ {product.historicalLow.toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      
+
                       {/* Preço e ações */}
                       <div className="flex flex-row sm:flex-col items-end sm:items-end justify-between sm:justify-start gap-3 sm:gap-2 flex-shrink-0">
                         <div className="text-left sm:text-right">
                           <p className="text-base sm:text-lg font-bold text-green-400">
                             R$ {product.currentPrice.toFixed(2)}
                           </p>
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-                            {product.historicalLow && (
-                              <p className="text-xs text-gray-400">
-                                Menor: R$ {product.historicalLow.toFixed(2)}
-                              </p>
-                            )}
-                            {product.historicalHigh && product.historicalLow && (
-                              <p className="text-xs text-gray-500">
-                                ↔ R$ {product.priceRange.toFixed(2)}
-                              </p>
-                            )}
-                          </div>
+                          {product.weightedAverage && (
+                            <p className="text-xs text-gray-400 line-through">
+                              R$ {product.weightedAverage.toFixed(2)}
+                            </p>
+                          )}
                         </div>
-                        
+
                         <div className="flex items-center gap-2">
                           <div className="bg-red-600 px-2 sm:px-3 py-1 rounded-full">
                             <span className="font-bold text-white text-xs sm:text-sm">
@@ -450,16 +421,33 @@ export default function Home() {
                 ))
               ) : (
                 <div className="text-center py-8 text-gray-400">
-                  <p className="text-lg sm:text-xl">🔍 Nenhuma promoção encontrada neste período</p>
+                  <p className="text-lg sm:text-xl">🔍 Nenhuma oferta real encontrada</p>
                   <p className="text-sm mt-2 px-4 break-words">
-                    {promotionPeriod === '24h' && 'Tente aumentar o período para "Última semana" ou verifique se há dados suficientes.'}
-                    {promotionPeriod === '1w' && 'Tente "Último mês" ou "Desde sempre" para encontrar mais promoções.'}
-                    {promotionPeriod === '1m' && 'Tente "Desde sempre" ou aguarde mais dados serem coletados.'}
-                    {promotionPeriod === 'all' && 'Aguarde mais dados serem coletados pelo scraper ou ajuste os critérios.'}
+                    Aguarde mais dados serem coletados ou os preços estão estáveis no momento.
                   </p>
                 </div>
               )}
             </div>
+
+            {/* Debug info para admin */}
+            {userRole === 'admin' && topDrops.length > 0 && (
+              <details className="mt-4 p-3 bg-gray-600 rounded-lg">
+                <summary className="cursor-pointer text-sm text-gray-300 hover:text-white">
+                  🔧 Info de Debug (Admin)
+                </summary>
+                <div className="mt-2 space-y-2 text-xs text-gray-400">
+                  {topDrops.slice(0, 3).map((product, idx) => (
+                    <div key={product.id} className="border-l-2 border-purple-500 pl-2">
+                      <p><strong>#{idx + 1}: {product.name.substring(0, 50)}...</strong></p>
+                      <p>Preço atual: R$ {product.currentPrice} | Média ponderada: R$ {product.weightedAverage?.toFixed(2)}</p>
+                      <p>Verificações atuais: {product.currentPriceWeight} | Média histórica: {product.avgHistoricalWeight?.toFixed(1)}</p>
+                      <p>Range: R$ {product.historicalLow} - R$ {product.historicalHigh}</p>
+                      <p>Status: {product.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         </div>
       )}
@@ -537,7 +525,7 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                
+
                 <div className="space-y-2">
                   {build.categories.map(category => {
                     const product = getBuildProduct(build, category);
@@ -558,7 +546,7 @@ export default function Home() {
                               </p>
                               <p className="text-xs text-gray-500 capitalize">{product.website}</p>
                             </div>
-                            
+
                             {/* Preço e indicador de override */}
                             <div className="text-right flex-shrink-0 ml-2">
                               <div className="flex items-center gap-1">
@@ -582,9 +570,8 @@ export default function Home() {
                               {product.priceChange !== 0 && (
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="text-xs text-gray-400">Variação 24h:</span>
-                                  <span className={`text-xs font-medium ${
-                                    product.priceChange < 0 ? 'text-green-400' : 'text-red-400'
-                                  }`}>
+                                  <span className={`text-xs font-medium ${product.priceChange < 0 ? 'text-green-400' : 'text-red-400'
+                                    }`}>
                                     {product.priceChange > 0 ? '+' : ''}{product.priceChange.toFixed(1)}%
                                   </span>
                                   {product.previousPrice && product.previousPrice !== product.currentPrice && (
@@ -627,10 +614,10 @@ export default function Home() {
                                   🔗
                                 </a>
                                 <button
-                                  onClick={() => setBuildProductModal({ 
-                                    buildId: build.id, 
-                                    category, 
-                                    currentProduct: product 
+                                  onClick={() => setBuildProductModal({
+                                    buildId: build.id,
+                                    category,
+                                    currentProduct: product
                                   })}
                                   className="text-gray-400 hover:text-white transition-colors p-1"
                                   title="Trocar produto"
@@ -650,7 +637,7 @@ export default function Home() {
                     );
                   })}
                 </div>
-                
+
                 <div className="mt-4 pt-4 border-t border-gray-600">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <p className="text-lg sm:text-xl font-bold text-purple-400">
@@ -806,11 +793,11 @@ export default function Home() {
                   </span>
                   <span className="text-xs text-gray-400 capitalize">{product.website}</span>
                 </div>
-                
+
                 <h4 className="text-sm font-medium mb-3 line-clamp-3 break-words overflow-hidden">
                   {product.name}
                 </h4>
-                
+
                 <div className="flex justify-between items-end gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-lg sm:text-xl font-bold text-purple-400 break-words">
@@ -822,7 +809,7 @@ export default function Home() {
                       </p>
                     )}
                   </div>
-                  
+
                   <div className="flex space-x-1 sm:space-x-2 flex-shrink-0">
                     <button
                       onClick={() => showPriceModal(product)}
@@ -953,7 +940,7 @@ export default function Home() {
                 {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
               </button>
             </div>
-            
+
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <select
                 value={configFilters.category}
@@ -976,7 +963,7 @@ export default function Home() {
                 <option value="terabyte">Terabyte</option>
               </select>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {getFilteredConfigs().map(config => (
                 <div key={config.id} className="bg-gray-700 rounded-lg p-4">
@@ -1049,11 +1036,10 @@ export default function Home() {
                   <button
                     key={interval.value}
                     onClick={() => handleIntervalChange(interval.value)}
-                    className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors break-words ${
-                      chartInterval === interval.value
+                    className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors break-words ${chartInterval === interval.value
                         ? 'bg-purple-600 text-white'
                         : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                    }`}
+                      }`}
                     title={interval.desc}
                   >
                     {interval.label}
@@ -1132,7 +1118,7 @@ export default function Home() {
           </div>
         </div>
       )}
-      
+
       {/* Build Product Selection Modal - RESPONSIVO */}
       {buildProductModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
@@ -1148,13 +1134,13 @@ export default function Home() {
                 ✕
               </button>
             </div>
-            
+
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
               <p className="text-sm text-gray-400">Produto atual:</p>
               <p className="font-medium break-words">{buildProductModal.currentProduct.name}</p>
               <p className="text-purple-400">R$ {buildProductModal.currentProduct.currentPrice.toFixed(2)}</p>
             </div>
-            
+
             <div className="border-t border-gray-700 pt-4">
               <h4 className="font-medium mb-4">Produtos disponíveis:</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 max-h-96 overflow-y-auto">
@@ -1164,9 +1150,8 @@ export default function Home() {
                   .map(product => (
                     <div
                       key={product.id}
-                      className={`bg-gray-700 rounded-lg p-3 sm:p-4 cursor-pointer hover:bg-gray-600 transition-colors ${
-                        product.id === buildProductModal.currentProduct.id ? 'ring-2 ring-purple-500' : ''
-                      }`}
+                      className={`bg-gray-700 rounded-lg p-3 sm:p-4 cursor-pointer hover:bg-gray-600 transition-colors ${product.id === buildProductModal.currentProduct.id ? 'ring-2 ring-purple-500' : ''
+                        }`}
                       onClick={() => updateBuildProduct(buildProductModal.buildId, buildProductModal.category, product.id)}
                     >
                       <p className="font-medium text-sm mb-1 break-words line-clamp-2">
