@@ -894,9 +894,11 @@ export default function Home() {
                     {product.name}
                   </h4>
 
-                  <div className="flex justify-between items-end gap-2">
-                    <div className="min-w-0">
-                      <p className="text-lg sm:text-xl font-bold text-purple-400 whitespace-nowrap">
+                  {/* Container principal com flex column */}
+                  <div className="flex flex-col gap-2">
+                    {/* Linha do preço */}
+                    <div>
+                      <p className="text-lg sm:text-xl font-bold text-purple-400 whitespace-nowrap overflow-hidden text-ellipsis">
                         R$ {product.currentPrice.toFixed(2)}
                       </p>
 
@@ -905,11 +907,11 @@ export default function Home() {
                         (() => {
                           const realChange = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
                           return (
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-wrap">
                               <span className={`text-xs ${realChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
                                 {realChange > 0 ? '+' : ''}{realChange.toFixed(1)}%
                               </span>
-                              <span className="text-xs text-gray-500 line-through whitespace-nowrap">
+                              <span className="text-xs text-gray-500 line-through whitespace-nowrap overflow-hidden text-ellipsis">
                                 R$ {product.weightedAverage.toFixed(2)}
                               </span>
                             </div>
@@ -918,7 +920,8 @@ export default function Home() {
                       )}
                     </div>
 
-                    <div className="flex space-x-1 flex-shrink-0">
+                    {/* Linha dos botões */}
+                    <div className="flex justify-end gap-1 flex-shrink-0">
                       <button
                         onClick={() => toggleFavorite(product.id)}
                         className="text-gray-400 hover:text-white p-1"
