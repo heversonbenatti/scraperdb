@@ -352,7 +352,21 @@ export const useProducts = () => {
             } else if (sortBy === 'category') {
                 comparison = a.category.localeCompare(b.category);
             } else if (sortBy === 'drop') {
-                comparison = a.priceChange - b.priceChange;
+                // Calcular o desconto real baseado na média ponderada
+                const getDiscount = (product) => {
+                    if (!product.weightedAverage || product.weightedAverage === product.currentPrice) {
+                        return 0;
+                    }
+                    // Desconto positivo = preço atual menor que média (bom)
+                    // Desconto negativo = preço atual maior que média (ruim)
+                    return ((product.weightedAverage - product.currentPrice) / product.weightedAverage) * 100;
+                };
+                
+                const discountA = getDiscount(a);
+                const discountB = getDiscount(b);
+                
+                // Ordem decrescente por padrão (maior desconto primeiro)
+                comparison = discountB - discountA;
             }
             return sortOrder === 'asc' ? comparison : -comparison;
         });

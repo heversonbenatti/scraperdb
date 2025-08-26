@@ -369,7 +369,7 @@ export default function Home() {
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="text-base font-bold text-green-400">
+                          <p className="text-base font-bold text-green-400 whitespace-nowrap">
                             R$ {product.currentPrice.toFixed(2)}
                           </p>
                           <div className="flex items-center gap-1 mt-1">
@@ -457,11 +457,11 @@ export default function Home() {
                         </div>
 
                         <div className="text-right flex-shrink-0">
-                          <p className="text-base font-bold text-purple-400">
+                          <p className="text-base font-bold text-purple-400 whitespace-nowrap">
                             R$ {product.currentPrice.toFixed(2)}
                           </p>
                           {product.weightedAverage && (
-                            <p className="text-xs text-gray-500 line-through">
+                            <p className="text-xs text-gray-500 line-through whitespace-nowrap">
                               R$ {product.weightedAverage.toFixed(2)}
                             </p>
                           )}
@@ -635,13 +635,13 @@ export default function Home() {
                             {/* Preço e indicador de override */}
                             <div className="text-right flex-shrink-0 ml-2">
                               <div className="flex items-center gap-1">
-                                <span className="font-bold text-purple-400 text-sm sm:text-base">
+                                <span className="font-bold text-purple-400 text-sm sm:text-base whitespace-nowrap">
                                   R$ {(product.currentPrice * quantity).toFixed(2)}
                                 </span>
                                 {isOverride && <span className="text-xs text-yellow-400">✏️</span>}
                               </div>
                               {quantity > 1 && (
-                                <p className="text-xs text-gray-400">
+                                <p className="text-xs text-gray-400 whitespace-nowrap">
                                   {quantity}x R$ {product.currentPrice.toFixed(2)}
                                 </p>
                               )}
@@ -728,7 +728,7 @@ export default function Home() {
 
                 <div className="mt-4 pt-4 border-t border-gray-600">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <p className="text-lg sm:text-xl font-bold text-purple-400">
+                    <p className="text-lg sm:text-xl font-bold text-purple-400 whitespace-nowrap">
                       Total: R$ {calculateBuildTotal(build).toFixed(2)}
                     </p>
                     <div className="text-left sm:text-right text-xs text-gray-400">
@@ -888,7 +888,7 @@ export default function Home() {
 
                 <div className="flex justify-between items-end gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-lg sm:text-xl font-bold text-purple-400 break-words">
+                    <p className="text-lg sm:text-xl font-bold text-purple-400 whitespace-nowrap">
                       R$ {product.currentPrice.toFixed(2)}
                     </p>
 
