@@ -57,7 +57,10 @@ export default function Home() {
     allWebsites,
     showPriceModal,
     handleIntervalChange,
-    deleteProduct
+    deleteProduct,
+    toggleFavorite,
+    isFavorite,
+    getFavoriteProducts
   } = useProducts();
 
   const calculateBuildTotal = (build) => {
@@ -321,134 +324,216 @@ export default function Home() {
       setLoginCreds={setLoginCreds}
     >
       {activeTab === 'home' && (
-        <div className="space-y-6 sm:space-y-8 animate-fade-in">
-          <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
-            {/* Cabeçalho simplificado */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold flex items-center">
-                <span className="mr-2">🔥</span> Melhores Ofertas Reais
-              </h2>
+        <div className="animate-fade-in">
+          {/* Container Grid para duas colunas no desktop */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
-              <div className="text-right text-sm text-gray-400">
-                {topDrops.length} oferta(s) encontrada(s)
-              </div>
-            </div>
-
-            {/* Informações sobre o cálculo */}
-            <div className="mb-4 p-3 bg-gray-700 rounded-lg">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
-                <div className="text-gray-300 break-words">
-                  📊 Baseado no preço médio histórico ponderado vs. preço atual (mín. 5% desconto, próximo ao menor preço histórico)
+            {/* Coluna 1: Melhores Ofertas */}
+            <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
+                <h2 className="text-xl sm:text-2xl font-bold flex items-center">
+                  <span className="mr-2">🔥</span> Melhores Ofertas Reais
+                </h2>
+                <div className="text-right text-sm text-gray-400">
+                  {topDrops.length} oferta(s) encontrada(s)
                 </div>
               </div>
-            </div>
 
-            {/* Lista de ofertas */}
-            <div className="space-y-3">
-              {topDrops.length > 0 ? (
-                topDrops.map((product, idx) => (
-                  <div key={product.id} className="bg-gray-700 rounded-lg p-3 sm:p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
-                      {/* Ranking */}
-                      <span className="text-xl sm:text-2xl font-bold text-gray-400 flex-shrink-0 self-start sm:self-center">
-                        #{idx + 1}
-                      </span>
+              <div className="mb-4 p-3 bg-gray-700 rounded-lg">
+                <div className="text-sm text-gray-300">
+                  📊 Baseado no preço médio histórico ponderado vs. preço atual (mín. 5% desconto)
+                </div>
+              </div>
 
-                      <div className="min-w-0 flex-1">
-                        {/* Product Info */}
-                        <div className="mb-2">
-                          <p className="font-medium text-sm sm:text-base break-words line-clamp-2">
+              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {topDrops.length > 0 ? (
+                  topDrops.map((product, idx) => (
+                    <div key={product.id} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl font-bold text-gray-400 flex-shrink-0">
+                          #{idx + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm break-words line-clamp-2">
                             {product.name}
                           </p>
-                          <p className="text-xs sm:text-sm text-gray-400">
+                          <p className="text-xs text-gray-400">
                             {product.category} • {product.website}
                           </p>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {product.weightedAverage && (
+                              <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
+                                Média: R$ {product.weightedAverage.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         </div>
-
-                        {/* Tags e informações */}
-                        <div className="flex flex-wrap gap-1 sm:gap-2 mb-2 sm:mb-0">
-                          <span className="text-xs bg-purple-600 px-2 py-1 rounded">
-                            {product.priceHistory} preços analisados
-                          </span>
-                          {product.weightedAverage && (
-                            <span className="text-xs text-gray-400 bg-gray-600 px-2 py-1 rounded">
-                              Média: R$ {product.weightedAverage.toFixed(2)}
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-base font-bold text-green-400">
+                            R$ {product.currentPrice.toFixed(2)}
+                          </p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="bg-red-600 px-2 py-1 rounded-full text-xs font-bold text-white">
+                              -{product.promotionScore}%
                             </span>
-                          )}
-                          {product.discountAmount && (
-                            <span className="text-xs text-green-400 bg-gray-600 px-2 py-1 rounded">
-                              Economia: R$ {product.discountAmount.toFixed(2)}
-                            </span>
-                          )}
-                          {product.historicalLow && (
-                            <span className="text-xs text-blue-400 bg-gray-600 px-2 py-1 rounded">
-                              Menor: R$ {product.historicalLow.toFixed(2)}
-                            </span>
-                          )}
+                            <button
+                              onClick={() => showPriceModal(product)}
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              title="Ver gráfico"
+                            >
+                              📊
+                            </button>
+                            <button
+                              onClick={() => toggleFavorite(product.id)}
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              title={isFavorite(product.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                            >
+                              {isFavorite(product.id) ? '⭐' : '☆'}
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    <p className="text-lg">🔍 Nenhuma oferta real encontrada</p>
+                    <p className="text-sm mt-2">
+                      Aguarde mais dados serem coletados ou os preços estão estáveis.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
 
-                      {/* Preço e ações */}
-                      <div className="flex flex-row sm:flex-col items-end sm:items-end justify-between sm:justify-start gap-3 sm:gap-2 flex-shrink-0">
-                        <div className="text-left sm:text-right">
-                          <p className="text-base sm:text-lg font-bold text-green-400">
+            {/* Coluna 2: Produtos Favoritos */}
+            <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
+                <h2 className="text-xl sm:text-2xl font-bold flex items-center">
+                  <span className="mr-2">⭐</span> Produtos Favoritos
+                </h2>
+                <div className="text-right text-sm text-gray-400">
+                  {getFavoriteProducts.length} produto(s)
+                </div>
+              </div>
+
+              <div className="mb-4 p-3 bg-gray-700 rounded-lg">
+                <div className="text-sm text-gray-300">
+                  📍 Acompanhe o preço de produtos específicos que você está monitorando
+                </div>
+              </div>
+
+              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {getFavoriteProducts.length > 0 ? (
+                  getFavoriteProducts.map((product) => (
+                    <div key={product.id} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm break-words line-clamp-2">
+                            {product.name}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {product.category} • {product.website}
+                          </p>
+
+                          {/* Indicador de mudança de preço */}
+                          {product.weightedAverage && product.weightedAverage !== product.currentPrice && (
+                            <div className="flex items-center gap-2 mt-2">
+                              {(() => {
+                                const change = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
+                                return (
+                                  <>
+                                    <span className={`text-xs font-medium ${change < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                      {change > 0 ? '📈' : '📉'} {change > 0 ? '+' : ''}{change.toFixed(1)}%
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      vs média histórica
+                                    </span>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-base font-bold text-purple-400">
                             R$ {product.currentPrice.toFixed(2)}
                           </p>
                           {product.weightedAverage && (
-                            <p className="text-xs text-gray-400 line-through">
+                            <p className="text-xs text-gray-500 line-through">
                               R$ {product.weightedAverage.toFixed(2)}
                             </p>
                           )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <div className="bg-red-600 px-2 sm:px-3 py-1 rounded-full">
-                            <span className="font-bold text-white text-xs sm:text-sm">
-                              -{product.promotionScore}%
-                            </span>
+                          <div className="flex items-center gap-1 mt-1 justify-end">
+                            <button
+                              onClick={() => showPriceModal(product)}
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              title="Ver gráfico"
+                            >
+                              📊
+                            </button>
+                            <a
+                              href={product.product_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              title="Ver no site"
+                            >
+                              🔗
+                            </a>
+                            <button
+                              onClick={() => toggleFavorite(product.id)}
+                              className="text-gray-400 hover:text-white transition-colors p-1"
+                              title="Remover dos favoritos"
+                            >
+                              ❌
+                            </button>
                           </div>
-                          <button
-                            onClick={() => showPriceModal(product)}
-                            className="text-gray-400 hover:text-white transition-colors p-1"
-                            title="Ver gráfico de preços"
-                          >
-                            📊
-                          </button>
                         </div>
                       </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    <p className="text-lg">📌 Nenhum produto favorito</p>
+                    <p className="text-sm mt-2">
+                      Adicione produtos aos favoritos para acompanhar seus preços.
+                    </p>
+                    <p className="text-xs mt-4 text-gray-500">
+                      Use o botão ☆ nos produtos ou nas ofertas para adicionar aos favoritos.
+                    </p>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-400">
-                  <p className="text-lg sm:text-xl">🔍 Nenhuma oferta real encontrada</p>
-                  <p className="text-sm mt-2 px-4 break-words">
-                    Aguarde mais dados serem coletados ou os preços estão estáveis no momento.
-                  </p>
+                )}
+              </div>
+
+              {getFavoriteProducts.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-600">
+                  <div className="text-xs text-gray-400">
+                    💡 Dica: Os favoritos são salvos localmente no seu navegador
+                  </div>
                 </div>
               )}
             </div>
-
-            {/* Debug info para admin */}
-            {userRole === 'admin' && topDrops.length > 0 && (
-              <details className="mt-4 p-3 bg-gray-600 rounded-lg">
-                <summary className="cursor-pointer text-sm text-gray-300 hover:text-white">
-                  🔧 Info de Debug (Admin)
-                </summary>
-                <div className="mt-2 space-y-2 text-xs text-gray-400">
-                  {topDrops.slice(0, 3).map((product, idx) => (
-                    <div key={product.id} className="border-l-2 border-purple-500 pl-2">
-                      <p><strong>#{idx + 1}: {product.name.substring(0, 50)}...</strong></p>
-                      <p>Preço atual: R$ {product.currentPrice} | Média ponderada: R$ {product.weightedAverage?.toFixed(2)}</p>
-                      <p>Verificações atuais: {product.currentPriceWeight} | Média histórica: {product.avgHistoricalWeight?.toFixed(1)}</p>
-                      <p>Range: R$ {product.historicalLow} - R$ {product.historicalHigh}</p>
-                      <p>Status: {product.reason}</p>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
           </div>
+
+          {/* Debug info para admin (fora das colunas) */}
+          {userRole === 'admin' && topDrops.length > 0 && (
+            <details className="mt-6 p-3 bg-gray-800 border border-gray-700 rounded-lg">
+              <summary className="cursor-pointer text-sm text-gray-300 hover:text-white">
+                🔧 Info de Debug (Admin)
+              </summary>
+              <div className="mt-2 space-y-2 text-xs text-gray-400">
+                {topDrops.slice(0, 3).map((product, idx) => (
+                  <div key={product.id} className="border-l-2 border-purple-500 pl-2">
+                    <p><strong>#{idx + 1}: {product.name.substring(0, 50)}...</strong></p>
+                    <p>Preço atual: R$ {product.currentPrice} | Média ponderada: R$ {product.weightedAverage?.toFixed(2)}</p>
+                    <p>Status: {product.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
 
@@ -826,6 +911,13 @@ export default function Home() {
                   </div>
 
                   <div className="flex space-x-1 sm:space-x-2 flex-shrink-0">
+                    <button
+                      onClick={() => toggleFavorite(product.id)}
+                      className="text-gray-400 hover:text-white p-1"
+                      title={isFavorite(product.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                    >
+                      {isFavorite(product.id) ? '⭐' : '☆'}
+                    </button>
                     <button
                       onClick={() => showPriceModal(product)}
                       className="text-gray-400 hover:text-white p-1"
