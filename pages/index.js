@@ -337,6 +337,8 @@ export default function Home() {
       setShowLogin={setShowLogin}
       loginCreds={loginCreds}
       setLoginCreds={setLoginCreds}
+      adminSubTab={adminSubTab}
+      setAdminSubTab={setAdminSubTab}
     >
       {activeTab === 'home' && (
         <div className="animate-fade-in">
