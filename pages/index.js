@@ -7,7 +7,7 @@ import { supabaseClient } from "@/utils/supabase";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
-  const [expandedBuildProduct, setExpandedBuildProduct] = useState(null);
+  const [adminSubTab, setAdminSubTab] = useState('searches');
 
   const {
     userRole,
@@ -73,7 +73,9 @@ export default function Home() {
     assignToGroup,
     removeFromGroup,
     deleteProductGroup,
-    getGroupProducts
+    getGroupProducts,
+    // ← ADICIONAR ESTAS FUNÇÕES NO HOOK useProducts
+    fetchSearchConfigs
   } = useProducts();
 
   const calculateBuildTotal = (build) => {
@@ -1404,128 +1406,126 @@ export default function Home() {
             </div>
           </div>
         </div>
-      )}"
+      )}
 
       {/* Price History Modal - RESPONSIVO */}
-      {
-        selectedProduct && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
-            <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-6xl max-h-[95vh] overflow-auto animate-slide-up">
-              <div className="flex justify-between items-center mb-4">
-                <div className="min-w-0 flex-1 pr-4">
-                  <h3 className="text-lg sm:text-xl font-bold">Histórico de Preços</h3>
-                  <h4 className="text-base sm:text-lg text-gray-300 mt-1 break-words">
-                    {selectedProduct.name}
-                  </h4>
-                  <p className="text-sm text-gray-400">
-                    {selectedProduct.category} • {selectedProduct.website}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedProduct(null)}
-                  className="text-gray-400 hover:text-white text-xl sm:text-2xl p-1 sm:p-2 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="mb-4 p-3 bg-gray-700 rounded-lg">
-                <p className="text-sm text-gray-400 mb-2">
-                  Intervalo de tempo: <span className="text-gray-300">intervalo(período total)</span>
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
+          <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-6xl max-h-[95vh] overflow-auto animate-slide-up">
+            <div className="flex justify-between items-center mb-4">
+              <div className="min-w-0 flex-1 pr-4">
+                <h3 className="text-lg sm:text-xl font-bold">Histórico de Preços</h3>
+                <h4 className="text-base sm:text-lg text-gray-300 mt-1 break-words">
+                  {selectedProduct.name}
+                </h4>
+                <p className="text-sm text-gray-400">
+                  {selectedProduct.category} • {selectedProduct.website}
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {[
-                    { value: '1h', label: '1 hora (24h)', desc: 'Pontos a cada 1 hora, últimas 24 horas' },
-                    { value: '6h', label: '6 horas (6 dias)', desc: 'Pontos a cada 6 horas, últimos 6 dias' },
-                    { value: '1d', label: '1 dia (30 dias)', desc: 'Pontos a cada 1 dia, últimos 30 dias' },
-                    { value: '1w', label: '1 semana (3 meses)', desc: 'Pontos a cada 1 semana, últimos 3 meses' }
-                  ].map(interval => (
-                    <button
-                      key={interval.value}
-                      onClick={() => handleIntervalChange(interval.value)}
-                      className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors break-words ${chartInterval === interval.value
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                        }`}
-                      title={interval.desc}
-                    >
-                      {interval.label}
-                    </button>
-                  ))}
-                </div>
+              </div>
+              <button
+                onClick={() => setSelectedProduct(null)}
+                className="text-gray-400 hover:text-white text-xl sm:text-2xl p-1 sm:p-2 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-gray-700 rounded-lg">
+              <p className="text-sm text-gray-400 mb-2">
+                Intervalo de tempo: <span className="text-gray-300">intervalo(período total)</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {[
+                  { value: '1h', label: '1 hora (24h)', desc: 'Pontos a cada 1 hora, últimas 24 horas' },
+                  { value: '6h', label: '6 horas (6 dias)', desc: 'Pontos a cada 6 horas, últimos 6 dias' },
+                  { value: '1d', label: '1 dia (30 dias)', desc: 'Pontos a cada 1 dia, últimos 30 dias' },
+                  { value: '1w', label: '1 semana (3 meses)', desc: 'Pontos a cada 1 semana, últimos 3 meses' }
+                ].map(interval => (
+                  <button
+                    key={interval.value}
+                    onClick={() => handleIntervalChange(interval.value)}
+                    className={`px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors break-words ${chartInterval === interval.value
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                      }`}
+                    title={interval.desc}
+                  >
+                    {interval.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Grid com gráfico e lista */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
+              {/* Gráfico - ocupa 2 colunas no desktop */}
+              <div className="lg:col-span-2">
+                <PriceChart data={priceHistory} />
               </div>
 
-              {/* Grid com gráfico e lista */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
-                {/* Gráfico - ocupa 2 colunas no desktop */}
-                <div className="lg:col-span-2">
-                  <PriceChart data={priceHistory} />
-                </div>
-
-                {/* Lista do histórico - ocupa 1 coluna */}
-                <div className="bg-gray-700 rounded-lg p-4">
-                  <h5 className="text-sm font-bold text-gray-300 mb-3 border-b border-gray-600 pb-2">
-                    Histórico de Mudanças ({priceHistory.length})
-                  </h5>
-                  <div className="max-h-80 overflow-y-auto space-y-2">
-                    {priceHistory.length > 0 ? (
-                      [...priceHistory].reverse().map((entry, idx) => (
-                        <div key={idx} className="flex justify-between items-start text-xs border-b border-gray-600 pb-2 last:border-b-0">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-purple-400">
-                              R$ {entry.price.toFixed(2)}
-                            </p>
-                            <p className="text-gray-400 text-xs break-words">
-                              {new Date(entry.price_changed_at || entry.collected_at).toLocaleString('pt-BR')}
-                            </p>
-                          </div>
-                          {idx > 0 && (
-                            <div className="flex-shrink-0 ml-2">
-                              {entry.price < priceHistory[priceHistory.length - idx - 1]?.price ? (
-                                <span className="text-green-400 text-xs">↓</span>
-                              ) : entry.price > priceHistory[priceHistory.length - idx - 1]?.price ? (
-                                <span className="text-red-400 text-xs">↑</span>
-                              ) : (
-                                <span className="text-gray-500 text-xs">-</span>
-                              )}
-                            </div>
-                          )}
+              {/* Lista do histórico - ocupa 1 coluna */}
+              <div className="bg-gray-700 rounded-lg p-4">
+                <h5 className="text-sm font-bold text-gray-300 mb-3 border-b border-gray-600 pb-2">
+                  Histórico de Mudanças ({priceHistory.length})
+                </h5>
+                <div className="max-h-80 overflow-y-auto space-y-2">
+                  {priceHistory.length > 0 ? (
+                    [...priceHistory].reverse().map((entry, idx) => (
+                      <div key={idx} className="flex justify-between items-start text-xs border-b border-gray-600 pb-2 last:border-b-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-purple-400">
+                            R$ {entry.price.toFixed(2)}
+                          </p>
+                          <p className="text-gray-400 text-xs break-words">
+                            {new Date(entry.price_changed_at || entry.collected_at).toLocaleString('pt-BR')}
+                          </p>
                         </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-4 text-gray-400">
-                        <p className="text-sm">Nenhum histórico disponível</p>
+                        {idx > 0 && (
+                          <div className="flex-shrink-0 ml-2">
+                            {entry.price < priceHistory[priceHistory.length - idx - 1]?.price ? (
+                              <span className="text-green-400 text-xs">↓</span>
+                            ) : entry.price > priceHistory[priceHistory.length - idx - 1]?.price ? (
+                              <span className="text-red-400 text-xs">↑</span>
+                            ) : (
+                              <span className="text-gray-500 text-xs">-</span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-gray-400">
+                      <p className="text-sm">Nenhum histórico disponível</p>
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
-                <a
-                  href={selectedProduct.product_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-center text-sm sm:text-base"
-                >
-                  Ver no Site 🔗
-                </a>
-                <div className="flex-1 text-center sm:text-right text-sm text-gray-400">
-                  <div className="break-words">
-                    Última atualização: {selectedProduct.lastUpdated ?
-                      new Date(selectedProduct.lastUpdated).toLocaleString('pt-BR') :
-                      'Não disponível'
-                    }
-                  </div>
-                  <div className="mt-1">
-                    Mostrando: {priceHistory.length} ponto(s) de dados
-                  </div>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <a
+                href={selectedProduct.product_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-center text-sm sm:text-base"
+              >
+                Ver no Site 🔗
+              </a>
+              <div className="flex-1 text-center sm:text-right text-sm text-gray-400">
+                <div className="break-words">
+                  Última atualização: {selectedProduct.lastUpdated ?
+                    new Date(selectedProduct.lastUpdated).toLocaleString('pt-BR') :
+                    'Não disponível'
+                  }
+                </div>
+                <div className="mt-1">
+                  Mostrando: {priceHistory.length} ponto(s) de dados
                 </div>
               </div>
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
 
       {/* Build Product Selection Modal - RESPONSIVO */}
       {

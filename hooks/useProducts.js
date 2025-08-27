@@ -41,7 +41,7 @@ export const useProducts = () => {
     });
     const [favoriteProducts, setFavoriteProducts] = useState([]);
 
-    // NOVOS ESTADOS para grupos de produtos
+    // Estados para grupos de produtos
     const [productGroups, setProductGroups] = useState([]);
     const [unclassifiedProducts, setUnclassifiedProducts] = useState([]);
     const [newGroup, setNewGroup] = useState({
@@ -178,7 +178,134 @@ export const useProducts = () => {
         }
     };
 
-    // NOVAS FUNÇÕES para gerenciar grupos de produtos
+    // Funções para gerenciar configurações de busca
+    const fetchSearchConfigs = async () => {
+        try {
+            const { data: configsData } = await supabaseClient
+                .from('search_configs')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            const configsWithKeywords = await Promise.all(
+                (configsData || []).map(async (config) => {
+                    const { data: keywordData } = await supabaseClient
+                        .from('keyword_groups')
+                        .select('keywords')
+                        .eq('search_config_id', config.id);
+
+                    return {
+                        ...config,
+                        keywordGroups: keywordData?.map(kg => kg.keywords) || []
+                    };
+                })
+            );
+
+            setSearchConfigs(configsWithKeywords);
+            const activeCount = configsWithKeywords.filter(c => c.is_active).length;
+            const totalCount = configsWithKeywords.length;
+            setGlobalSearchToggle(activeCount === totalCount && totalCount > 0);
+        } catch (error) {
+            console.error('Error fetching configs:', error);
+        }
+    };
+
+    const addSearchConfig = async () => {
+        if (!newSearch.search_text || !newSearch.category) return;
+
+        const validKeywordGroups = newSearch.keywordGroups.filter(g => g.trim());
+        if (validKeywordGroups.length === 0) return;
+
+        const selectedWebsites = Object.entries(newSearch.websites)
+            .filter(([_, checked]) => checked)
+            .map(([site]) => site);
+
+        if (selectedWebsites.length === 0) return;
+
+        try {
+            for (const website of selectedWebsites) {
+                const { data: configData } = await supabaseClient
+                    .from('search_configs')
+                    .insert([{
+                        search_text: newSearch.search_text,
+                        category: newSearch.category,
+                        website: website,
+                        is_active: newSearch.is_active
+                    }])
+                    .select();
+
+                const keywordGroupsData = validKeywordGroups.map(group => ({
+                    search_config_id: configData[0].id,
+                    keywords: group
+                }));
+
+                await supabaseClient.from('keyword_groups').insert(keywordGroupsData);
+            }
+
+            setNewSearch({
+                search_text: '',
+                keywordGroups: [''],
+                category: '',
+                websites: { kabum: false, pichau: false, terabyte: false },
+                is_active: true
+            });
+            await fetchSearchConfigs();
+        } catch (error) {
+            console.error('Error adding config:', error);
+        }
+    };
+
+    const toggleSearchActive = async (id, currentStatus) => {
+        await supabaseClient
+            .from('search_configs')
+            .update({ is_active: !currentStatus })
+            .eq('id', id);
+
+        setSearchConfigs(prev => prev.map(config =>
+            config.id === id ? { ...config, is_active: !currentStatus } : config
+        ));
+    };
+
+    const toggleAllSearches = async (newStatus) => {
+        try {
+            await Promise.all(
+                searchConfigs.map(config =>
+                    supabaseClient
+                        .from('search_configs')
+                        .update({ is_active: newStatus })
+                        .eq('id', config.id)
+                )
+            );
+
+            setSearchConfigs(prev => prev.map(config => ({
+                ...config,
+                is_active: newStatus
+            })));
+
+            setGlobalSearchToggle(newStatus);
+        } catch (error) {
+            console.error('Error toggling all searches:', error);
+        }
+    };
+
+    const deleteSearchConfig = async (id) => {
+        if (confirm('Remover esta configuração?')) {
+            await supabaseClient.from('search_configs').delete().eq('id', id);
+            setSearchConfigs(prev => prev.filter(c => c.id !== id));
+        }
+    };
+
+    const getFilteredConfigs = () => {
+        let filtered = [...searchConfigs];
+        if (configFilters.category) {
+            filtered = filtered.filter(c => c.category === configFilters.category);
+        }
+        if (configFilters.website) {
+            filtered = filtered.filter(c => c.website === configFilters.website);
+        }
+        return filtered;
+    };
+
+    // Funções para gerenciar grupos de produtos
     const createProductGroup = async (productId, groupData) => {
         try {
             const product = products.find(p => p.id === productId);
@@ -402,36 +529,6 @@ export const useProducts = () => {
             .slice(0, 15);
     };
 
-    const fetchSearchConfigs = async () => {
-        try {
-            const { data: configsData } = await supabaseClient
-                .from('search_configs')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            const configsWithKeywords = await Promise.all(
-                (configsData || []).map(async (config) => {
-                    const { data: keywordData } = await supabaseClient
-                        .from('keyword_groups')
-                        .select('keywords')
-                        .eq('search_config_id', config.id);
-
-                    return {
-                        ...config,
-                        keywordGroups: keywordData?.map(kg => kg.keywords) || []
-                    };
-                })
-            );
-
-            setSearchConfigs(configsWithKeywords);
-            const activeCount = configsWithKeywords.filter(c => c.is_active).length;
-            const totalCount = configsWithKeywords.length;
-            setGlobalSearchToggle(activeCount === totalCount && totalCount > 0);
-        } catch (error) {
-            console.error('Error fetching configs:', error);
-        }
-    };
-
     const fetchPriceHistory = async (productId, interval = '6h') => {
         try {
             let totalHours, intervalHours, expectedPoints;
@@ -647,7 +744,7 @@ export const useProducts = () => {
         newSearch,
         setNewSearch,
 
-        // NOVOS states para grupos
+        // Estados para grupos
         productGroups,
         setProductGroups,
         unclassifiedProducts,
@@ -676,7 +773,15 @@ export const useProducts = () => {
         isFavorite,
         getFavoriteProducts,
 
-        // NOVAS funções para grupos
+        // Funções para configurações de busca
+        fetchSearchConfigs,
+        addSearchConfig,
+        toggleSearchActive,
+        toggleAllSearches,
+        deleteSearchConfig,
+        getFilteredConfigs,
+
+        // Funções para grupos
         createProductGroup,
         assignToGroup,
         removeFromGroup,
