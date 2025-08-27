@@ -41,6 +41,16 @@ export const useProducts = () => {
     });
     const [favoriteProducts, setFavoriteProducts] = useState([]);
 
+    // NOVOS ESTADOS para grupos de produtos
+    const [productGroups, setProductGroups] = useState([]);
+    const [unclassifiedProducts, setUnclassifiedProducts] = useState([]);
+    const [newGroup, setNewGroup] = useState({
+        name: '',
+        subcategory: ''
+    });
+    const [selectedGroupCategory, setSelectedGroupCategory] = useState('');
+    const [groupFilters, setGroupFilters] = useState({ category: '', classified: 'unclassified' });
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
@@ -85,9 +95,17 @@ export const useProducts = () => {
                 .order('created_at', { ascending: false });
             setBuilds(buildsData || []);
 
+            // Buscar produtos com grupos
             const { data: productsData } = await supabaseClient
                 .from('products')
-                .select('id, name, category, website, product_link');
+                .select('*, product_groups(*)');
+
+            // Buscar grupos de produtos
+            const { data: groupsData } = await supabaseClient
+                .from('product_groups')
+                .select('*')
+                .order('name', { ascending: true });
+            setProductGroups(groupsData || []);
 
             const productsWithPrices = await Promise.all(
                 (productsData || []).map(async (product) => {
@@ -136,15 +154,20 @@ export const useProducts = () => {
                         previousPrice,
                         priceChange,
                         lastUpdated,
-                        weightedAverage, // ✅ Nova propriedade para usar em toda a aplicação
+                        weightedAverage,
                     };
                 })
             );
 
-            setProducts(productsWithPrices.filter(p => p.currentPrice > 0));
+            const validProducts = productsWithPrices.filter(p => p.currentPrice > 0);
+            setProducts(validProducts);
+
+            // Separar produtos não classificados
+            const unclassified = validProducts.filter(p => !p.product_group_id);
+            setUnclassifiedProducts(unclassified);
 
             // Calcular promoções usando a nova lógica
-            const promotionalProducts = await calculatePromotions(productsWithPrices.filter(p => p.currentPrice > 0));
+            const promotionalProducts = await calculatePromotions(validProducts);
             setTopDrops(promotionalProducts);
 
             await fetchSearchConfigs();
@@ -155,10 +178,182 @@ export const useProducts = () => {
         }
     };
 
+    // NOVAS FUNÇÕES para gerenciar grupos de produtos
+    const createProductGroup = async (productId, groupData) => {
+        try {
+            const product = products.find(p => p.id === productId);
+            if (!product) return;
+
+            const { data: groupCreated, error: groupError } = await supabaseClient
+                .from('product_groups')
+                .insert([{
+                    name: groupData.name,
+                    category: product.category,
+                    subcategory: groupData.subcategory || product.category
+                }])
+                .select()
+                .single();
+
+            if (groupError) throw groupError;
+
+            // Vincular produto ao grupo
+            const { error: updateError } = await supabaseClient
+                .from('products')
+                .update({ product_group_id: groupCreated.id })
+                .eq('id', productId);
+
+            if (updateError) throw updateError;
+
+            // Atualizar estado local
+            setProducts(prev => prev.map(p =>
+                p.id === productId
+                    ? { ...p, product_group_id: groupCreated.id, product_groups: groupCreated }
+                    : p
+            ));
+
+            setUnclassifiedProducts(prev => prev.filter(p => p.id !== productId));
+            setProductGroups(prev => [...prev, groupCreated]);
+
+            // Limpar form
+            setNewGroup({ name: '', subcategory: '' });
+
+            return groupCreated;
+        } catch (error) {
+            console.error('Error creating product group:', error);
+            alert('Erro ao criar grupo de produto');
+        }
+    };
+
+    const assignToGroup = async (productId, groupId) => {
+        try {
+            const { error } = await supabaseClient
+                .from('products')
+                .update({ product_group_id: groupId })
+                .eq('id', productId);
+
+            if (error) throw error;
+
+            // Buscar informações do grupo para atualizar estado local
+            const { data: groupData } = await supabaseClient
+                .from('product_groups')
+                .select('*')
+                .eq('id', groupId)
+                .single();
+
+            // Atualizar estado local
+            setProducts(prev => prev.map(p =>
+                p.id === productId
+                    ? { ...p, product_group_id: groupId, product_groups: groupData }
+                    : p
+            ));
+
+            setUnclassifiedProducts(prev => prev.filter(p => p.id !== productId));
+
+        } catch (error) {
+            console.error('Error assigning product to group:', error);
+            alert('Erro ao vincular produto ao grupo');
+        }
+    };
+
+    const removeFromGroup = async (productId) => {
+        try {
+            const { error } = await supabaseClient
+                .from('products')
+                .update({ product_group_id: null })
+                .eq('id', productId);
+
+            if (error) throw error;
+
+            const product = products.find(p => p.id === productId);
+
+            // Atualizar estado local
+            setProducts(prev => prev.map(p =>
+                p.id === productId
+                    ? { ...p, product_group_id: null, product_groups: null }
+                    : p
+            ));
+
+            if (product) {
+                setUnclassifiedProducts(prev => [...prev, { ...product, product_group_id: null, product_groups: null }]);
+            }
+
+        } catch (error) {
+            console.error('Error removing product from group:', error);
+            alert('Erro ao remover produto do grupo');
+        }
+    };
+
+    const deleteProductGroup = async (groupId) => {
+        if (!confirm('Remover este grupo? Todos os produtos serão desvinculados.')) return;
+
+        try {
+            const { error } = await supabaseClient
+                .from('product_groups')
+                .delete()
+                .eq('id', groupId);
+
+            if (error) throw error;
+
+            // Atualizar estado local
+            setProductGroups(prev => prev.filter(g => g.id !== groupId));
+
+            // Atualizar produtos que estavam nesse grupo
+            const affectedProducts = products.filter(p => p.product_group_id === groupId);
+            setProducts(prev => prev.map(p =>
+                p.product_group_id === groupId
+                    ? { ...p, product_group_id: null, product_groups: null }
+                    : p
+            ));
+
+            setUnclassifiedProducts(prev => [...prev, ...affectedProducts.map(p => ({
+                ...p,
+                product_group_id: null,
+                product_groups: null
+            }))]);
+
+        } catch (error) {
+            console.error('Error deleting product group:', error);
+            alert('Erro ao deletar grupo');
+        }
+    };
+
+    // Funções de filtragem para grupos
+    const getFilteredUnclassifiedProducts = useMemo(() => {
+        let filtered = [...unclassifiedProducts];
+
+        if (groupFilters.category) {
+            filtered = filtered.filter(p => p.category === groupFilters.category);
+        }
+
+        // Ordenar por categoria e depois por nome
+        filtered.sort((a, b) => {
+            if (a.category !== b.category) {
+                return a.category.localeCompare(b.category);
+            }
+            return a.name.localeCompare(b.name);
+        });
+
+        return filtered;
+    }, [unclassifiedProducts, groupFilters.category]);
+
+    const getFilteredGroups = useMemo(() => {
+        let filtered = [...productGroups];
+
+        if (groupFilters.category) {
+            filtered = filtered.filter(g => g.category === groupFilters.category);
+        }
+
+        return filtered;
+    }, [productGroups, groupFilters.category]);
+
+    const getGroupProducts = (groupId) => {
+        return products.filter(p => p.product_group_id === groupId);
+    };
+
+    // Calcular promoções (mantém a função existente)
     const calculatePromotions = async (productsWithPrices) => {
         const promotionalProducts = productsWithPrices.map(product => {
             try {
-                // Usar weightedAverage já calculado no fetchInitialData
                 if (!product.weightedAverage || product.weightedAverage === product.currentPrice) {
                     return {
                         ...product,
@@ -171,21 +366,18 @@ export const useProducts = () => {
                 const currentPrice = product.currentPrice;
                 const weightedAverage = product.weightedAverage;
 
-                // Calcular o desconto real baseado na sua especificação exata
                 const discountPercent = ((weightedAverage - currentPrice) / weightedAverage) * 100;
 
-                // Critérios para ser considerado promoção
-                const isSignificantDiscount = discountPercent >= 5; // Mínimo 5% de desconto
-                const hasMinimumPrice = currentPrice >= 20; // Preço mínimo R$ 20
-                const isReasonableDiscount = discountPercent <= 80; // Máximo 80% (evita erros)
+                const isSignificantDiscount = discountPercent >= 5;
+                const hasMinimumPrice = currentPrice >= 20;
+                const isReasonableDiscount = discountPercent <= 80;
 
-                // Calcular estatísticas adicionais para a interface
                 const discountAmount = weightedAverage - currentPrice;
 
                 const isPromotion = isSignificantDiscount &&
                     hasMinimumPrice &&
                     isReasonableDiscount &&
-                    discountAmount > 0; // Garantir que é realmente um desconto
+                    discountAmount > 0;
 
                 return {
                     ...product,
@@ -204,11 +396,10 @@ export const useProducts = () => {
             }
         });
 
-        // Retornar apenas produtos com promoção real, ordenados por desconto
         return promotionalProducts
             .filter(p => p.isPromotion)
             .sort((a, b) => b.promotionScore - a.promotionScore)
-            .slice(0, 15); // Top 15 promoções reais
+            .slice(0, 15);
     };
 
     const fetchSearchConfigs = async () => {
@@ -352,20 +543,16 @@ export const useProducts = () => {
             } else if (sortBy === 'category') {
                 comparison = a.category.localeCompare(b.category);
             } else if (sortBy === 'drop') {
-                // Calcular o desconto real baseado na média ponderada
                 const getDiscount = (product) => {
                     if (!product.weightedAverage || product.weightedAverage === product.currentPrice) {
                         return 0;
                     }
-                    // Desconto positivo = preço atual menor que média (bom)
-                    // Desconto negativo = preço atual maior que média (ruim)
                     return ((product.weightedAverage - product.currentPrice) / product.weightedAverage) * 100;
                 };
-                
+
                 const discountA = getDiscount(a);
                 const discountB = getDiscount(b);
-                
-                // Ordem decrescente por padrão (maior desconto primeiro)
+
                 comparison = discountB - discountA;
             }
             return sortOrder === 'asc' ? comparison : -comparison;
@@ -411,7 +598,6 @@ export const useProducts = () => {
             } else {
                 newFavorites = [...prev, productId];
             }
-            // Salvar no localStorage
             localStorage.setItem('favoriteProducts', JSON.stringify(newFavorites));
             return newFavorites;
         });
@@ -426,7 +612,7 @@ export const useProducts = () => {
     }, [products, favoriteProducts]);
 
     return {
-        // States
+        // States existentes
         builds,
         setBuilds,
         products,
@@ -461,12 +647,26 @@ export const useProducts = () => {
         newSearch,
         setNewSearch,
 
+        // NOVOS states para grupos
+        productGroups,
+        setProductGroups,
+        unclassifiedProducts,
+        setUnclassifiedProducts,
+        newGroup,
+        setNewGroup,
+        selectedGroupCategory,
+        setSelectedGroupCategory,
+        groupFilters,
+        setGroupFilters,
+
         // Computed values
         getSortedProducts,
         allCategories,
         allWebsites,
+        getFilteredUnclassifiedProducts,
+        getFilteredGroups,
 
-        // Functions
+        // Functions existentes
         fetchPriceHistory,
         showPriceModal,
         handleIntervalChange,
@@ -474,8 +674,13 @@ export const useProducts = () => {
         fetchInitialData,
         toggleFavorite,
         isFavorite,
+        getFavoriteProducts,
 
-        // Computed values
-        getFavoriteProducts
+        // NOVAS funções para grupos
+        createProductGroup,
+        assignToGroup,
+        removeFromGroup,
+        deleteProductGroup,
+        getGroupProducts,
     };
 };
