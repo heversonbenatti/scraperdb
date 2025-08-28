@@ -114,13 +114,13 @@ def normalize_price_pichau(price_text):
             corrected_price = price / 100
             # Se o preço corrigido fica entre 10 e 10000, provavelmente estava errado
             if 10 <= corrected_price <= 10000:
-                print(f"⚠️ Preço suspeito corrigido: {price} -> {corrected_price}")
+                print(f"Preço suspeito corrigido: {price} -> {corrected_price}")
                 price = corrected_price
         
         return price
         
     except Exception as e:
-        print(f"❌ Erro ao normalizar preço '{price_text}': {e}")
+        print(f"Erro ao normalizar preço '{price_text}': {e}")
         return 0.0
 
 def calculate_weighted_average(product_id):
@@ -161,7 +161,7 @@ def calculate_weighted_average(product_id):
                 return None
                 
     except Exception as e:
-        print(f"❌ Erro ao calcular média histórica: {e}")
+        print(f"Erro ao calcular média histórica: {e}")
         return None
 
 def check_promotion_and_notify(product_id, product_name, current_price, website):
@@ -172,14 +172,14 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
         weighted_average = calculate_weighted_average(product_id)
         
         if not weighted_average or weighted_average == current_price:
-            print(f"📊 {product_name}: Sem histórico suficiente para calcular promoção")
+            print(f"[{product_name}] Sem histórico suficiente para calcular promoção")
             return False
         
         # Calcular desconto exatamente como no frontend
         discount_percent = ((weighted_average - current_price) / weighted_average) * 100
         
-        print(f"📊 {product_name}: Preço atual R$ {current_price:.2f} vs Média histórica R$ {weighted_average:.2f}")
-        print(f"📊 Desconto calculado: {discount_percent:.1f}%")
+        print(f"[{product_name}] Preço atual R$ {current_price:.2f} vs Média histórica R$ {weighted_average:.2f}")
+        print(f"Desconto calculado: {discount_percent:.1f}%")
         
         # Critérios para notificação (mesmo do frontend)
         is_significant_discount = discount_percent >= 10  # Mínimo 10% para notificação
@@ -193,24 +193,24 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
                        discount_amount > 0)
         
         if is_promotion:
-            print(f"🔥 PROMOÇÃO DETECTADA! {product_name} - {discount_percent:.1f}% desconto")
+            print(f"PROMOÇÃO DETECTADA: {product_name} - {discount_percent:.1f}% desconto")
             
             # Enviar notificação do Telegram
             try:
                 bot = TelegramPriceBot()
-                message = f"🔥 PROMOÇÃO REAL DETECTADA!\n\n"
-                message += f"📱 {product_name}\n"
-                message += f"🏪 {website.upper()}\n\n"
-                message += f"💰 Preço atual: R$ {current_price:.2f}\n"
-                message += f"📊 Média histórica: R$ {weighted_average:.2f}\n"
-                message += f"📉 Desconto: {discount_percent:.1f}%\n"
-                message += f"💵 Economia: R$ {discount_amount:.2f}"
+                message = f"PROMOÇÃO REAL DETECTADA\n\n"
+                message += f"Produto: {product_name}\n"
+                message += f"Site: {website.upper()}\n\n"
+                message += f"Preço atual: R$ {current_price:.2f}\n"
+                message += f"Média histórica: R$ {weighted_average:.2f}\n"
+                message += f"Desconto: {discount_percent:.1f}%\n"
+                message += f"Economia: R$ {discount_amount:.2f}"
                 
                 asyncio.run(bot.send_message(message))
-                print(f"✅ Notificação de promoção enviada!")
+                print(f"Notificação de promoção enviada")
                 return True
             except Exception as e:
-                print(f"❌ Erro ao enviar notificação de promoção: {e}")
+                print(f"Erro ao enviar notificação de promoção: {e}")
         else:
             reasons = []
             if not is_significant_discount:
@@ -222,17 +222,17 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
             if discount_amount <= 0:
                 reasons.append("preço atual >= média")
             
-            print(f"⚪ Não é promoção: {', '.join(reasons)}")
+            print(f"Não é promoção: {', '.join(reasons)}")
         
         return False
         
     except Exception as e:
-        print(f"❌ Erro ao verificar promoção: {e}")
+        print(f"Erro ao verificar promoção: {e}")
         return False
 
 def save_product(name, price, website, category, product_link, keywords_matched=None):
     if price > 10.0:
-        print(f"\n💾 Tentando salvar: {name} | {website} | {category} | {price} | Matched: {keywords_matched}")
+        print(f"\nTentando salvar: {name} | {website} | {category} | {price} | Matched: {keywords_matched}")
 
         try:
             with engine.begin() as conn:
@@ -251,7 +251,7 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         product_link=product_link
                     ))
                     product_id = result.inserted_primary_key[0]
-                    print(f"👉 Produto novo inserido com id={product_id}")
+                    print(f"Produto novo inserido com id={product_id}")
                 
                 # 2. Buscar último preço registrado para este produto
                 last_price_query = select(
@@ -280,19 +280,14 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         price_changed_at=current_time,
                         check_count=1
                     ))
-                    print(f"✅ Primeiro preço inserido: R$ {price}")
+                    print(f"Primeiro preço inserido: R$ {price}")
                     
                 else:
                     # Converter preços para float para comparação segura
                     last_price = float(last_price_result.price)
                     current_price = float(price)
                     
-                    # Verificar se o último registro é da busca atual (últimos 5 minutos)
-                    last_checked = last_price_result.last_checked_at
-                    if last_checked.tzinfo is not None:
-                        last_checked = last_checked.replace(tzinfo=None)
-                    time_diff = current_time - last_checked
-                    is_same_search = time_diff.total_seconds() < 300  # 5 minutos
+                    # Variáveis removidas - não utilizadas após remoção da lógica "mesma busca"
                     
                     if abs(last_price - current_price) > 0.01:  # Mudança significativa (> R$ 0,01)
                         # Preço mudou - inserir novo registro
@@ -306,13 +301,10 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         ))
                         price_diff = current_price - last_price
                         percentage = (price_diff / last_price) * 100
-                        print(f"📈 Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
+                        print(f"Preço mudou: R$ {last_price} → R$ {current_price} ({percentage:+.1f}%)")
                         
-                        # 🚨 NOVA LÓGICA: Só verifica promoção se NÃO for da mesma busca
-                        if not is_same_search:
-                            check_promotion_and_notify(product_id, name, current_price, website)
-                        else:
-                            print(f"💡 Mudança na mesma busca - verificação de promoção ignorada")
+                        # Verificar se é uma promoção real e notificar
+                        check_promotion_and_notify(product_id, name, current_price, website)
                         
                     else:
                         # Preço igual - apenas atualizar last_checked_at e incrementar contador
@@ -327,10 +319,10 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                                 check_count=new_check_count
                             )
                         )
-                        print(f"🔄 Preço mantido R$ {current_price} (verificação #{new_check_count})")
+                        print(f"Preço mantido R$ {current_price} (verificação #{new_check_count})")
 
         except Exception as e:
-            print(f"🔥 Erro inesperado no save_product: {e}")
+            print(f"Erro inesperado no save_product: {e}")
             import traceback
             traceback.print_exc()
 
@@ -374,14 +366,14 @@ def get_search_configs_with_keywords():
             
             return configs_with_keywords
     except Exception as e:
-        print(f"🔥 Error fetching search configurations: {e}")
+        print(f"Error fetching search configurations: {e}")
         return []
 
 def scrape_kabum(driver, wait, query, wordlist, category):
     if stop_event.is_set():
         return
         
-    print(f"\n🔍 Searching on Kabum: {query}")
+    print(f"\nSearching on Kabum: {query}")
     base_url = "https://www.kabum.com.br"
     url = f"{base_url}/busca/{quote_plus(query.replace(' ', '-'))}?page_number=1&page_size=100&facet_filters=&sort=most_searched&variant=null&redirect_terms=true"
     
@@ -389,7 +381,7 @@ def scrape_kabum(driver, wait, query, wordlist, category):
         driver.get(url)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.productCard")))
     except:
-        print(f"⚠️ Page didn't load or doesn't exist")
+        print(f"Page didn't load or doesn't exist")
         return
         
     if stop_event.is_set():
@@ -440,7 +432,7 @@ def scrape_kabum(driver, wait, query, wordlist, category):
                                     .where(products.c.id == existing_product.id)
                                     .values(name=final_name)
                                 )
-                                print(f"🔄 Nome atualizado: '{existing_name}' → '{final_name}'")
+                                print(f"Nome atualizado: '{existing_name}' → '{final_name}'")
                 else:
                     final_name = base_name
                 
@@ -450,13 +442,13 @@ def scrape_kabum(driver, wait, query, wordlist, category):
                 save_product(final_name, price, "kabum", category, product_link, matched_keywords)
                 
         except Exception as e:
-            print(f"❌ Erro no parsing Kabum: {e}")
+            print(f"Erro no parsing Kabum: {e}")
 
 def scrape_pichau(driver, wait, query, wordlist, category):
     if stop_event.is_set():
         return
         
-    print(f"\n🔍 Searching on Pichau: {query}")
+    print(f"\nSearching on Pichau: {query}")
     base_url = "https://www.pichau.com.br"
     url = f"{base_url}{query}"
     
@@ -468,7 +460,7 @@ def scrape_pichau(driver, wait, query, wordlist, category):
         # Aguarda adicional para garantir que os preços estejam formatados corretamente
         time.sleep(2)
     except:
-        print(f"⚠️ Page didn't load or doesn't exist")
+        print(f"Page didn't load or doesn't exist")
         return
         
     if stop_event.is_set():
@@ -494,7 +486,7 @@ def scrape_pichau(driver, wait, query, wordlist, category):
                 # Tenta diferentes seletores para o preço
                 price_elem = card.select_one("div.mui-12athy2-price_vista, .price, [data-testid='price']")
                 if not price_elem:
-                    print(f"⚠️ Preço não encontrado para: {name}")
+                    print(f"Preço não encontrado para: {name}")
                     continue
                     
                 price_text = price_elem.get_text(strip=True).replace("\xa0", " ")
@@ -505,16 +497,16 @@ def scrape_pichau(driver, wait, query, wordlist, category):
                 if price > 0:
                     save_product(name, price, "pichau", category, product_link, matched_keywords)
                 else:
-                    print(f"⚠️ Preço inválido para {name}: {price_text}")
+                    print(f"Preço inválido para {name}: {price_text}")
                 
         except Exception as e:
-            print(f"❌ Erro no parsing Pichau: {e}")
+            print(f"Erro no parsing Pichau: {e}")
 
 def scrape_terabyte(driver, wait, query, wordlist, category):
     if stop_event.is_set():
         return
         
-    print(f"\n🔍 Searching on Terabyte: {query}")
+    print(f"\nSearching on Terabyte: {query}")
     base_url = "https://www.terabyteshop.com.br"
     url = f"{base_url}/busca?str={quote_plus(query)}"
     
@@ -522,7 +514,7 @@ def scrape_terabyte(driver, wait, query, wordlist, category):
         driver.get(url)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".product-item")))
     except:
-        print(f"⚠️ Page didn't load or doesn't exist")
+        print(f"Page didn't load or doesn't exist")
         return
         
     if stop_event.is_set():
@@ -550,7 +542,7 @@ def scrape_terabyte(driver, wait, query, wordlist, category):
                 save_product(name, price, "terabyteshop", category, product_link, matched_keywords)
                 
         except Exception as e:
-            print(f"❌ Erro no parsing Terabyte: {e}")
+            print(f"Erro no parsing Terabyte: {e}")
 
 def create_driver():
     opts = Options()
@@ -594,10 +586,10 @@ def start_search():
                     all_searches = get_search_configs_with_keywords()
                     
                     if not all_searches:
-                        print("⚠️ No active search configurations found")
+                        print("No active search configurations found")
                         elapsed = time.time() - start_time
                         delay = max(360 - elapsed, 60)
-                        print(f"\n⏳ Next scan in {delay//60} minutes...")
+                        print(f"\nNext scan in {delay//60} minutes...")
                         
                         # Wait with stop event checking
                         if stop_event.wait(delay):
@@ -646,7 +638,7 @@ def start_search():
                                     return
                                     
                             except Exception as e:
-                                print(f"🔥 Error during {website_name} search: {e}")
+                                print(f"Error during {website_name} search: {e}")
                             finally:
                                 if driver:
                                     try:
@@ -679,14 +671,14 @@ def start_search():
                             break
                 
                 except Exception as e:
-                    print(f"🔥 Error in search cycle: {e}")
+                    print(f"Error in search cycle: {e}")
                 
                 if stop_event.is_set():
                     break
                     
                 elapsed = time.time() - start_time
                 delay = max(360 - elapsed, 60)
-                print(f"\n⏳ Next scan in {delay//60} minutes...")
+                print(f"\nNext scan in {delay//60} minutes...")
                 
                 # Wait with stop event checking
                 if stop_event.wait(delay):
@@ -695,14 +687,14 @@ def start_search():
         except Exception as e:
             print(f"Unexpected error in search task: {e}")
         finally:
-            print("🛑 Search task stopped")
+            print("Search task stopped")
 
     search_thread = threading.Thread(target=search_task, daemon=True)
     search_thread.start()
     return search_thread
 
 def signal_handler(sig, frame):
-    print("\n🛑 Received shutdown signal, stopping gracefully...")
+    print("\nReceived shutdown signal, stopping gracefully...")
     stop_event.set()
 
 if __name__ == "__main__":
@@ -710,7 +702,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    print("🚀 Starting PC Scraper...")
+    print("Starting PC Scraper...")
     print("Press Ctrl+C to stop gracefully")
     
     search_thread = start_search()
@@ -720,14 +712,14 @@ if __name__ == "__main__":
         while not stop_event.is_set():
             time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\n🛑 Keyboard interrupt received")
+        print("\nKeyboard interrupt received")
         stop_event.set()
     finally:
-        print("⏳ Waiting for threads to finish...")
+        print("Waiting for threads to finish...")
         
         # Give threads time to cleanup
         if search_thread.is_alive():
             search_thread.join(timeout=10)  # Wait max 10 seconds
         
-        print("✅ Clean shutdown complete.")
+        print("Clean shutdown complete.")
         sys.exit(0)

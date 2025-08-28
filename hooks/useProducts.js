@@ -306,7 +306,7 @@ export const useProducts = () => {
 
                 const discountPercent = ((weightedAverage - currentPrice) / weightedAverage) * 100;
 
-                const isSignificantDiscount = discountPercent >= 5;
+                const isSignificantDiscount = discountPercent >= 10;
                 const hasMinimumPrice = currentPrice >= 20;
                 const isReasonableDiscount = discountPercent <= 80;
 

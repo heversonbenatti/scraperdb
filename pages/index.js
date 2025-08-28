@@ -57,9 +57,6 @@ export default function Home() {
     showPriceModal,
     handleIntervalChange,
     deleteProduct,
-    toggleFavorite,
-    isFavorite,
-    getFavoriteProducts,
     fetchSearchConfigs
   } = useProducts();
 
@@ -332,7 +329,7 @@ export default function Home() {
             <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
                 <h2 className="text-xl sm:text-2xl font-bold flex items-center">
-                  <span className="mr-2">🔥</span> Melhores Ofertas Reais
+                  Melhores Ofertas Reais
                 </h2>
                 <div className="text-right text-sm text-gray-400">
                   {topDrops.length} oferta(s) encontrada(s)
@@ -341,7 +338,7 @@ export default function Home() {
 
               <div className="mb-4 p-3 bg-gray-700 rounded-lg">
                 <div className="text-sm text-gray-300">
-                  📊 Baseado no preço médio histórico ponderado vs. preço atual (mín. 5% desconto)
+                  📊 Baseado no preço médio histórico ponderado vs. preço atual (mín. 10% desconto)
                 </div>
               </div>
 
@@ -520,24 +517,6 @@ export default function Home() {
               )}
             </div>
           </div>
-
-          {/* Debug info para admin (fora das colunas) */}
-          {userRole === 'admin' && topDrops.length > 0 && (
-            <details className="mt-6 p-3 bg-gray-800 border border-gray-700 rounded-lg">
-              <summary className="cursor-pointer text-sm text-gray-300 hover:text-white">
-                🔧 Info de Debug (Admin)
-              </summary>
-              <div className="mt-2 space-y-2 text-xs text-gray-400">
-                {topDrops.slice(0, 3).map((product, idx) => (
-                  <div key={product.id} className="border-l-2 border-purple-500 pl-2">
-                    <p><strong>#{idx + 1}: {product.name.substring(0, 50)}...</strong></p>
-                    <p>Preço atual: R$ {product.currentPrice} | Média ponderada: R$ {product.weightedAverage?.toFixed(2)}</p>
-                    <p>Status: {product.reason}</p>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
         </div>
       )
       }
