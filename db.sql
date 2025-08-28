@@ -31,15 +31,7 @@ CREATE TABLE public.prices (
   CONSTRAINT prices_pkey PRIMARY KEY (id),
   CONSTRAINT prices_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id)
 );
-CREATE TABLE public.product_groups (
-  id integer NOT NULL DEFAULT nextval('product_groups_id_seq'::regclass),
-  name character varying NOT NULL,
-  category character varying NOT NULL,
-  subcategory character varying NOT NULL,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT product_groups_pkey PRIMARY KEY (id)
-);
+
 CREATE TABLE public.products (
   id integer NOT NULL DEFAULT nextval('products_id_seq'::regclass),
   name character varying NOT NULL,
@@ -48,9 +40,9 @@ CREATE TABLE public.products (
   product_link text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
-  product_group_id integer,
+
   CONSTRAINT products_pkey PRIMARY KEY (id),
-  CONSTRAINT products_product_group_id_fkey FOREIGN KEY (product_group_id) REFERENCES public.product_groups(id)
+
 );
 CREATE TABLE public.search_configs (
   id integer NOT NULL DEFAULT nextval('search_configs_id_seq'::regclass),

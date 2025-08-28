@@ -41,15 +41,7 @@ export const useProducts = () => {
     });
     const [favoriteProducts, setFavoriteProducts] = useState([]);
 
-    // Estados para grupos de produtos
-    const [productGroups, setProductGroups] = useState([]);
-    const [unclassifiedProducts, setUnclassifiedProducts] = useState([]);
-    const [newGroup, setNewGroup] = useState({
-        name: '',
-        subcategory: ''
-    });
-    const [selectedGroupCategory, setSelectedGroupCategory] = useState('');
-    const [groupFilters, setGroupFilters] = useState({ category: '', classified: 'unclassified' });
+
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -95,17 +87,10 @@ export const useProducts = () => {
                 .order('created_at', { ascending: false });
             setBuilds(buildsData || []);
 
-            // Buscar produtos com grupos
+            // Buscar produtos
             const { data: productsData } = await supabaseClient
                 .from('products')
-                .select('*, product_groups(*)');
-
-            // Buscar grupos de produtos
-            const { data: groupsData } = await supabaseClient
-                .from('product_groups')
-                .select('*')
-                .order('name', { ascending: true });
-            setProductGroups(groupsData || []);
+                .select('*');
 
             const productsWithPrices = await Promise.all(
                 (productsData || []).map(async (product) => {
@@ -161,10 +146,6 @@ export const useProducts = () => {
 
             const validProducts = productsWithPrices.filter(p => p.currentPrice > 0);
             setProducts(validProducts);
-
-            // Separar produtos não classificados
-            const unclassified = validProducts.filter(p => !p.product_group_id);
-            setUnclassifiedProducts(unclassified);
 
             // Calcular promoções usando a nova lógica
             const promotionalProducts = await calculatePromotions(validProducts);
@@ -305,177 +286,7 @@ export const useProducts = () => {
         return filtered;
     };
 
-    // Funções para gerenciar grupos de produtos
-    const createProductGroup = async (productId, groupData) => {
-        try {
-            const product = products.find(p => p.id === productId);
-            if (!product) return;
 
-            const { data: groupCreated, error: groupError } = await supabaseClient
-                .from('product_groups')
-                .insert([{
-                    name: groupData.name,
-                    category: product.category,
-                    subcategory: groupData.subcategory || product.category
-                }])
-                .select()
-                .single();
-
-            if (groupError) throw groupError;
-
-            // Vincular produto ao grupo
-            const { error: updateError } = await supabaseClient
-                .from('products')
-                .update({ product_group_id: groupCreated.id })
-                .eq('id', productId);
-
-            if (updateError) throw updateError;
-
-            // Atualizar estado local
-            setProducts(prev => prev.map(p =>
-                p.id === productId
-                    ? { ...p, product_group_id: groupCreated.id, product_groups: groupCreated }
-                    : p
-            ));
-
-            setUnclassifiedProducts(prev => prev.filter(p => p.id !== productId));
-            setProductGroups(prev => [...prev, groupCreated]);
-
-            // Limpar form
-            setNewGroup({ name: '', subcategory: '' });
-
-            return groupCreated;
-        } catch (error) {
-            console.error('Error creating product group:', error);
-            alert('Erro ao criar grupo de produto');
-        }
-    };
-
-    const assignToGroup = async (productId, groupId) => {
-        try {
-            const { error } = await supabaseClient
-                .from('products')
-                .update({ product_group_id: groupId })
-                .eq('id', productId);
-
-            if (error) throw error;
-
-            // Buscar informações do grupo para atualizar estado local
-            const { data: groupData } = await supabaseClient
-                .from('product_groups')
-                .select('*')
-                .eq('id', groupId)
-                .single();
-
-            // Atualizar estado local
-            setProducts(prev => prev.map(p =>
-                p.id === productId
-                    ? { ...p, product_group_id: groupId, product_groups: groupData }
-                    : p
-            ));
-
-            setUnclassifiedProducts(prev => prev.filter(p => p.id !== productId));
-
-        } catch (error) {
-            console.error('Error assigning product to group:', error);
-            alert('Erro ao vincular produto ao grupo');
-        }
-    };
-
-    const removeFromGroup = async (productId) => {
-        try {
-            const { error } = await supabaseClient
-                .from('products')
-                .update({ product_group_id: null })
-                .eq('id', productId);
-
-            if (error) throw error;
-
-            const product = products.find(p => p.id === productId);
-
-            // Atualizar estado local
-            setProducts(prev => prev.map(p =>
-                p.id === productId
-                    ? { ...p, product_group_id: null, product_groups: null }
-                    : p
-            ));
-
-            if (product) {
-                setUnclassifiedProducts(prev => [...prev, { ...product, product_group_id: null, product_groups: null }]);
-            }
-
-        } catch (error) {
-            console.error('Error removing product from group:', error);
-            alert('Erro ao remover produto do grupo');
-        }
-    };
-
-    const deleteProductGroup = async (groupId) => {
-        if (!confirm('Remover este grupo? Todos os produtos serão desvinculados.')) return;
-
-        try {
-            const { error } = await supabaseClient
-                .from('product_groups')
-                .delete()
-                .eq('id', groupId);
-
-            if (error) throw error;
-
-            // Atualizar estado local
-            setProductGroups(prev => prev.filter(g => g.id !== groupId));
-
-            // Atualizar produtos que estavam nesse grupo
-            const affectedProducts = products.filter(p => p.product_group_id === groupId);
-            setProducts(prev => prev.map(p =>
-                p.product_group_id === groupId
-                    ? { ...p, product_group_id: null, product_groups: null }
-                    : p
-            ));
-
-            setUnclassifiedProducts(prev => [...prev, ...affectedProducts.map(p => ({
-                ...p,
-                product_group_id: null,
-                product_groups: null
-            }))]);
-
-        } catch (error) {
-            console.error('Error deleting product group:', error);
-            alert('Erro ao deletar grupo');
-        }
-    };
-
-    // Funções de filtragem para grupos
-    const getFilteredUnclassifiedProducts = useMemo(() => {
-        let filtered = [...unclassifiedProducts];
-
-        if (groupFilters.category) {
-            filtered = filtered.filter(p => p.category === groupFilters.category);
-        }
-
-        // Ordenar por categoria e depois por nome
-        filtered.sort((a, b) => {
-            if (a.category !== b.category) {
-                return a.category.localeCompare(b.category);
-            }
-            return a.name.localeCompare(b.name);
-        });
-
-        return filtered;
-    }, [unclassifiedProducts, groupFilters.category]);
-
-    const getFilteredGroups = useMemo(() => {
-        let filtered = [...productGroups];
-
-        if (groupFilters.category) {
-            filtered = filtered.filter(g => g.category === groupFilters.category);
-        }
-
-        return filtered;
-    }, [productGroups, groupFilters.category]);
-
-    const getGroupProducts = (groupId) => {
-        return products.filter(p => p.product_group_id === groupId);
-    };
 
     // Calcular promoções (mantém a função existente)
     const calculatePromotions = async (productsWithPrices) => {
@@ -744,24 +555,13 @@ export const useProducts = () => {
         newSearch,
         setNewSearch,
 
-        // Estados para grupos
-        productGroups,
-        setProductGroups,
-        unclassifiedProducts,
-        setUnclassifiedProducts,
-        newGroup,
-        setNewGroup,
-        selectedGroupCategory,
-        setSelectedGroupCategory,
-        groupFilters,
-        setGroupFilters,
+
 
         // Computed values
         getSortedProducts,
         allCategories,
         allWebsites,
-        getFilteredUnclassifiedProducts,
-        getFilteredGroups,
+
 
         // Functions existentes
         fetchPriceHistory,
@@ -781,11 +581,6 @@ export const useProducts = () => {
         deleteSearchConfig,
         getFilteredConfigs,
 
-        // Funções para grupos
-        createProductGroup,
-        assignToGroup,
-        removeFromGroup,
-        deleteProductGroup,
-        getGroupProducts,
+
     };
 };

@@ -7,7 +7,6 @@ import { supabaseClient } from "@/utils/supabase";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
-  const [adminSubTab, setAdminSubTab] = useState('searches');
 
   const {
     userRole,
@@ -61,20 +60,6 @@ export default function Home() {
     toggleFavorite,
     isFavorite,
     getFavoriteProducts,
-    productGroups,
-    unclassifiedProducts,
-    newGroup,
-    setNewGroup,
-    groupFilters,
-    setGroupFilters,
-    getFilteredUnclassifiedProducts,
-    getFilteredGroups,
-    createProductGroup,
-    assignToGroup,
-    removeFromGroup,
-    deleteProductGroup,
-    getGroupProducts,
-    // ← ADICIONAR ESTAS FUNÇÕES NO HOOK useProducts
     fetchSearchConfigs
   } = useProducts();
 
@@ -905,14 +890,7 @@ export default function Home() {
                     <span className="text-xs text-gray-400 capitalize">{product.website}</span>
                   </div>
 
-                  {/* Badge do Grupo se classificado */}
-                  {product.product_groups && (
-                    <div className="mb-2">
-                      <span className="text-xs bg-green-600 px-2 py-1 rounded">
-                        📦 {product.product_groups.name}
-                      </span>
-                    </div>
-                  )}
+
 
                   <h4 className="text-sm font-medium mb-3 line-clamp-3 break-words overflow-hidden">
                     {product.name}
@@ -985,424 +963,155 @@ export default function Home() {
 
       {activeTab === 'admin' && userRole === 'admin' && (
         <div className="space-y-4 sm:space-y-6 animate-fade-in">
-          {/* Tabs do Admin */}
+          {/* Conteúdo das configurações de busca */}
           <div className="bg-gray-800 rounded-lg border border-gray-700">
-            <div className="flex flex-wrap border-b border-gray-700">
-              <button
-                onClick={() => setAdminSubTab('searches')}
-                className={`px-4 sm:px-6 py-3 font-medium text-sm sm:text-base transition-colors ${adminSubTab === 'searches'
-                  ? 'bg-gray-700 text-white border-b-2 border-purple-500'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
-                  }`}
-              >
-                🔍 Configurações de Busca
-              </button>
-              <button
-                onClick={() => setAdminSubTab('classification')}
-                className={`px-4 sm:px-6 py-3 font-medium text-sm sm:text-base transition-colors ${adminSubTab === 'classification'
-                  ? 'bg-gray-700 text-white border-b-2 border-purple-500'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
-                  }`}
-              >
-                📦 Classificação de Produtos
-              </button>
-            </div>
-
-            {/* Conteúdo das abas */}
             <div className="p-4 sm:p-6">
-              {/* Aba de Configurações de Busca */}
-              {adminSubTab === 'searches' && (
-                <>
-                  {/* Nova configuração de busca - RESPONSIVO */}
-                  <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
-                    <h3 className="text-lg font-bold mb-4">Nova Configuração de Busca</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              {/* Nova configuração de busca - RESPONSIVO */}
+              <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
+                <h3 className="text-lg font-bold mb-4">Nova Configuração de Busca</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <input
+                    type="text"
+                    placeholder="Categoria"
+                    value={newSearch.category}
+                    onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
+                    className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
+                  />
+                </div>
+                <div className="space-y-2 mb-4">
+                  <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
+                  {newSearch.keywordGroups.map((group, idx) => (
+                    <div key={idx} className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="Categoria"
-                        value={newSearch.category}
-                        onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
-                        className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
+                        placeholder="ex: x3d,5500,processador"
+                        value={group}
+                        onChange={(e) => {
+                          const updated = [...newSearch.keywordGroups];
+                          updated[idx] = e.target.value;
+                          setNewSearch({ ...newSearch, keywordGroups: updated });
+                        }}
+                        className="flex-1 px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
                       />
-                    </div>
-                    <div className="space-y-2 mb-4">
-                      <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
-                      {newSearch.keywordGroups.map((group, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="ex: x3d,5500,processador"
-                            value={group}
-                            onChange={(e) => {
-                              const updated = [...newSearch.keywordGroups];
-                              updated[idx] = e.target.value;
-                              setNewSearch({ ...newSearch, keywordGroups: updated });
-                            }}
-                            className="flex-1 px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
-                          />
-                          {newSearch.keywordGroups.length > 1 && (
-                            <button
-                              onClick={() => {
-                                setNewSearch({
-                                  ...newSearch,
-                                  keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
-                                });
-                              }}
-                              className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors text-sm flex-shrink-0"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
-                        className="px-4 py-2 bg-gray-600 hover:bg-gray-500 border border-gray-500 rounded-md transition-colors text-sm"
-                      >
-                        + Adicionar Grupo
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-4 mb-4">
-                      {Object.keys(newSearch.websites).map(site => (
-                        <label key={site} className="flex items-center space-x-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newSearch.websites[site]}
-                            onChange={(e) => setNewSearch({
+                      {newSearch.keywordGroups.length > 1 && (
+                        <button
+                          onClick={() => {
+                            setNewSearch({
                               ...newSearch,
-                              websites: { ...newSearch.websites, [site]: e.target.checked }
-                            })}
-                            className="w-4 h-4 text-purple-600 bg-gray-600 border-gray-500 rounded"
-                          />
-                          <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <button
-                      onClick={addSearchConfig}
-                      className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
-                    >
-                      Adicionar Configuração
-                    </button>
-                  </div>
-
-                  {/* Configurações ativas */}
-                  <div>
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
-                      <h3 className="text-lg font-bold">Configurações Ativas</h3>
-                      <button
-                        onClick={() => toggleAllSearches(!globalSearchToggle)}
-                        className={`px-4 py-2 rounded-md font-medium transition-colors text-sm sm:text-base ${globalSearchToggle
-                          ? 'bg-red-600 hover:bg-red-700 text-white'
-                          : 'bg-green-600 hover:bg-green-700 text-white'
-                          }`}
-                      >
-                        {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
-                      </button>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                      <select
-                        value={configFilters.category}
-                        onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
-                        className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                      >
-                        <option value="">Todas Categorias</option>
-                        {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={configFilters.website}
-                        onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
-                        className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                      >
-                        <option value="">Todos Sites</option>
-                        <option value="kabum">Kabum</option>
-                        <option value="pichau">Pichau</option>
-                        <option value="terabyte">Terabyte</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {getFilteredConfigs().map(config => (
-                        <div key={config.id} className="bg-gray-700 rounded-lg p-4">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="font-medium break-words pr-2">{config.search_text}</span>
-                            <button
-                              onClick={() => deleteSearchConfig(config.id)}
-                              className="text-red-400 hover:text-red-300 flex-shrink-0"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
-                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
-                            <button
-                              onClick={() => toggleSearchActive(config.id, config.is_active)}
-                              className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'}`}
-                            >
-                              {config.is_active ? 'Ativo' : 'Inativo'}
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {config.keywordGroups.map((group, idx) => (
-                              <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded break-words">
-                                {group}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Aba de Classificação de Produtos */}
-              {adminSubTab === 'classification' && (
-                <>
-                  {/* Filtros */}
-                  <div className="bg-gray-700 rounded-lg p-4 mb-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <select
-                        value={groupFilters.category}
-                        onChange={(e) => setGroupFilters({ ...groupFilters, category: e.target.value })}
-                        className="px-3 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                      >
-                        <option value="">Todas Categorias</option>
-                        {allCategories.map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={groupFilters.classified}
-                        onChange={(e) => setGroupFilters({ ...groupFilters, classified: e.target.value })}
-                        className="px-3 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                      >
-                        <option value="unclassified">Não Classificados</option>
-                        <option value="classified">Classificados</option>
-                        <option value="all">Todos</option>
-                      </select>
-                      <div className="text-sm text-gray-300 flex items-center">
-                        {groupFilters.classified === 'unclassified' && (
-                          <span>📦 {getFilteredUnclassifiedProducts.length} produto(s) sem classificação</span>
-                        )}
-                        {groupFilters.classified === 'classified' && (
-                          <span>✅ {getFilteredGroups.length} grupo(s) criado(s)</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Lista de Produtos Não Classificados */}
-                  {groupFilters.classified === 'unclassified' && (
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold mb-4">Produtos Não Classificados</h3>
-                      {getFilteredUnclassifiedProducts.length === 0 ? (
-                        <div className="bg-gray-700 rounded-lg p-8 text-center text-gray-400">
-                          <p className="text-lg mb-2">🎉 Todos os produtos estão classificados!</p>
-                          <p className="text-sm">Novos produtos aparecerão aqui quando forem encontrados.</p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-4">
-                          {getFilteredUnclassifiedProducts.map(product => (
-                            <div key={product.id} className="bg-gray-700 rounded-lg p-4">
-                              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                                {/* Informações do Produto */}
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-sm sm:text-base break-words">{product.name}</h4>
-                                  <div className="flex flex-wrap gap-2 mt-2">
-                                    <span className="text-xs bg-purple-600 px-2 py-1 rounded">
-                                      {product.category}
-                                    </span>
-                                    <span className="text-xs bg-gray-600 px-2 py-1 rounded capitalize">
-                                      {product.website}
-                                    </span>
-                                    <span className="text-xs bg-green-600 px-2 py-1 rounded">
-                                      R$ {product.currentPrice.toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Ações de Classificação */}
-                                <div className="flex flex-col sm:flex-row gap-3">
-                                  {/* Criar Novo Grupo */}
-                                  <div className="flex gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Nome do grupo"
-                                      value={newGroup.name}
-                                      onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
-                                      className="px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-sm flex-1"
-                                    />
-                                    <input
-                                      type="text"
-                                      placeholder="Subcategoria"
-                                      value={newGroup.subcategory}
-                                      onChange={(e) => setNewGroup({ ...newGroup, subcategory: e.target.value })}
-                                      className="px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-sm flex-1"
-                                    />
-                                    <button
-                                      onClick={() => createProductGroup(product.id, newGroup)}
-                                      className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md text-sm font-medium whitespace-nowrap"
-                                    >
-                                      Criar Grupo
-                                    </button>
-                                  </div>
-
-                                  {/* Ou Atribuir a Grupo Existente */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm text-gray-400">ou</span>
-                                    <select
-                                      onChange={(e) => e.target.value && assignToGroup(product.id, parseInt(e.target.value))}
-                                      className="px-3 py-2 bg-gray-600 border border-gray-500 rounded-md text-sm"
-                                    >
-                                      <option value="">Adicionar ao grupo...</option>
-                                      {getFilteredGroups
-                                        .filter(g => g.category === product.category)
-                                        .map(group => (
-                                          <option key={group.id} value={group.id}>
-                                            {group.name} ({getGroupProducts(group.id).length} produtos)
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                              keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
+                            });
+                          }}
+                          className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors text-sm flex-shrink-0"
+                        >
+                          ✕
+                        </button>
                       )}
                     </div>
-                  )}
+                  ))}
+                  <button
+                    onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-500 border border-gray-500 rounded-md transition-colors text-sm"
+                  >
+                    + Adicionar Grupo
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-4 mb-4">
+                  {Object.keys(newSearch.websites).map(site => (
+                    <label key={site} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newSearch.websites[site]}
+                        onChange={(e) => setNewSearch({
+                          ...newSearch,
+                          websites: { ...newSearch.websites, [site]: e.target.checked }
+                        })}
+                        className="w-4 h-4 text-purple-600 bg-gray-600 border-gray-500 rounded"
+                      />
+                      <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={addSearchConfig}
+                  className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
+                >
+                  Adicionar Configuração
+                </button>
+              </div>
 
-                  {/* Lista de Grupos Classificados */}
-                  {groupFilters.classified === 'classified' && (
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-bold mb-4">Grupos de Produtos</h3>
-                      {getFilteredGroups.length === 0 ? (
-                        <div className="bg-gray-700 rounded-lg p-8 text-center text-gray-400">
-                          <p className="text-lg mb-2">📦 Nenhum grupo criado ainda</p>
-                          <p className="text-sm">Classifique produtos para criar grupos.</p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {getFilteredGroups.map(group => {
-                            const groupProducts = getGroupProducts(group.id);
-                            const lowestPrice = Math.min(...groupProducts.map(p => p.currentPrice));
+              {/* Configurações ativas */}
+              <div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
+                  <h3 className="text-lg font-bold">Configurações Ativas</h3>
+                  <button
+                    onClick={() => toggleAllSearches(!globalSearchToggle)}
+                    className={`px-4 py-2 rounded-md font-medium transition-colors text-sm sm:text-base ${globalSearchToggle
+                      ? 'bg-red-600 hover:bg-red-700 text-white'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                      }`}
+                  >
+                    {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
+                  </button>
+                </div>
 
-                            return (
-                              <div key={group.id} className="bg-gray-700 rounded-lg p-4">
-                                <div className="flex justify-between items-start mb-3">
-                                  <div>
-                                    <h4 className="font-bold text-base">{group.name}</h4>
-                                    <div className="flex gap-2 mt-1">
-                                      <span className="text-xs bg-purple-600 px-2 py-1 rounded">
-                                        {group.category}
-                                      </span>
-                                      <span className="text-xs bg-blue-600 px-2 py-1 rounded">
-                                        {group.subcategory}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={() => deleteProductGroup(group.id)}
-                                    className="text-red-400 hover:text-red-300"
-                                    title="Deletar grupo"
-                                  >
-                                    🗑️
-                                  </button>
-                                </div>
+                <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                  <select
+                    value={configFilters.category}
+                    onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
+                    className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                  >
+                    <option value="">Todas Categorias</option>
+                    {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={configFilters.website}
+                    onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
+                    className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                  >
+                    <option value="">Todos Sites</option>
+                    <option value="kabum">Kabum</option>
+                    <option value="pichau">Pichau</option>
+                    <option value="terabyte">Terabyte</option>
+                  </select>
+                </div>
 
-                                <div className="space-y-2">
-                                  <p className="text-sm text-gray-300 font-medium">
-                                    {groupProducts.length} produto(s) | Menor: R$ {lowestPrice.toFixed(2)}
-                                  </p>
-                                  <div className="max-h-32 overflow-y-auto space-y-1">
-                                    {groupProducts.map(product => (
-                                      <div key={product.id} className="flex justify-between items-center text-xs bg-gray-600 rounded p-2">
-                                        <span className="truncate flex-1 mr-2">{product.name}</span>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-green-400">R$ {product.currentPrice.toFixed(2)}</span>
-                                          <span className="text-gray-400">{product.website}</span>
-                                          <button
-                                            onClick={() => removeFromGroup(product.id)}
-                                            className="text-red-400 hover:text-red-300"
-                                            title="Remover do grupo"
-                                          >
-                                            ✕
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Visualização de Todos (classified === 'all') */}
-                  {groupFilters.classified === 'all' && (
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-bold">Visão Geral da Classificação</h3>
-
-                      {/* Estatísticas */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="bg-gray-700 rounded-lg p-4 text-center">
-                          <p className="text-2xl font-bold text-green-400">{productGroups.length}</p>
-                          <p className="text-sm text-gray-400">Grupos Criados</p>
-                        </div>
-                        <div className="bg-gray-700 rounded-lg p-4 text-center">
-                          <p className="text-2xl font-bold text-purple-400">
-                            {products.filter(p => p.product_group_id).length}
-                          </p>
-                          <p className="text-sm text-gray-400">Produtos Classificados</p>
-                        </div>
-                        <div className="bg-gray-700 rounded-lg p-4 text-center">
-                          <p className="text-2xl font-bold text-yellow-400">
-                            {products.filter(p => !p.product_group_id).length}
-                          </p>
-                          <p className="text-sm text-gray-400">Não Classificados</p>
-                        </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {getFilteredConfigs().map(config => (
+                    <div key={config.id} className="bg-gray-700 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-medium break-words pr-2">{config.search_text}</span>
+                        <button
+                          onClick={() => deleteSearchConfig(config.id)}
+                          className="text-red-400 hover:text-red-300 flex-shrink-0"
+                        >
+                          🗑️
+                        </button>
                       </div>
-
-                      {/* Progresso por Categoria */}
-                      <div className="bg-gray-700 rounded-lg p-4">
-                        <h4 className="font-bold mb-3">Progresso por Categoria</h4>
-                        <div className="space-y-2">
-                          {allCategories.map(category => {
-                            const categoryProducts = products.filter(p => p.category === category);
-                            const classifiedCount = categoryProducts.filter(p => p.product_group_id).length;
-                            const totalCount = categoryProducts.length;
-                            const percentage = totalCount > 0 ? (classifiedCount / totalCount * 100) : 0;
-
-                            return (
-                              <div key={category} className="flex items-center gap-3">
-                                <span className="text-sm w-32 truncate">{category}</span>
-                                <div className="flex-1 bg-gray-600 rounded-full h-6 relative">
-                                  <div
-                                    className="bg-green-600 h-full rounded-full transition-all"
-                                    style={{ width: `${percentage}%` }}
-                                  />
-                                  <span className="absolute inset-0 flex items-center justify-center text-xs">
-                                    {classifiedCount}/{totalCount}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
+                        <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
+                        <button
+                          onClick={() => toggleSearchActive(config.id, config.is_active)}
+                          className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'}`}
+                        >
+                          {config.is_active ? 'Ativo' : 'Inativo'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {config.keywordGroups.map((group, idx) => (
+                          <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded break-words">
+                            {group}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  )}
-                </>
-              )}
+                  ))}
+                </div>
+              </div>
+
+
             </div>
           </div>
         </div>
