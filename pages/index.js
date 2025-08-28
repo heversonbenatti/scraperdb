@@ -1477,7 +1477,9 @@ export default function Home() {
                             R$ {entry.price.toFixed(2)}
                           </p>
                           <p className="text-gray-400 text-xs break-words">
-                            {new Date(entry.price_changed_at || entry.collected_at).toLocaleString('pt-BR')}
+                            {new Date(entry.price_changed_at || entry.collected_at).toLocaleString('pt-BR', {
+                              timeZone: 'America/Sao_Paulo'
+                            })}
                           </p>
                         </div>
                         {idx > 0 && (
