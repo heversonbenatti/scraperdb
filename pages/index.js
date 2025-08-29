@@ -382,13 +382,6 @@ export default function Home() {
                             >
                               📊
                             </button>
-                            <button
-                              onClick={() => toggleFavorite(product.id)}
-                              className="text-gray-400 hover:text-white transition-colors p-1"
-                              title={isFavorite(product.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-                            >
-                              {isFavorite(product.id) ? '⭐' : '☆'}
-                            </button>
                           </div>
                         </div>
                       </div>
@@ -403,118 +396,6 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Coluna 2: Produtos Favoritos */}
-            <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold flex items-center">
-                  <span className="mr-2">⭐</span> Produtos Favoritos
-                </h2>
-                <div className="text-right text-sm text-gray-400">
-                  {getFavoriteProducts.length} produto(s)
-                </div>
-              </div>
-
-              <div className="mb-4 p-3 bg-gray-700 rounded-lg">
-                <div className="text-sm text-gray-300">
-                  📍 Acompanhe o preço de produtos específicos que você está monitorando
-                </div>
-              </div>
-
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                {getFavoriteProducts.length > 0 ? (
-                  getFavoriteProducts.map((product) => (
-                    <div key={product.id} className="bg-gray-700 rounded-lg p-3 sm:p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm break-words line-clamp-2">
-                            {product.name}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {product.category} • {product.website}
-                          </p>
-
-                          {/* Indicador de mudança de preço */}
-                          {product.weightedAverage && product.weightedAverage !== product.currentPrice && (
-                            <div className="flex items-center gap-2 mt-2">
-                              {(() => {
-                                const change = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
-                                return (
-                                  <>
-                                    <span className={`text-xs font-medium ${change < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                      {change > 0 ? '📈' : '📉'} {change > 0 ? '+' : ''}{change.toFixed(1)}%
-                                    </span>
-                                    <span className="text-xs text-gray-500">
-                                      vs média histórica
-                                    </span>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col flex-shrink-0">
-                          <div className="text-right">
-                            <p className="text-base font-bold text-purple-400 whitespace-nowrap">
-                              R$ {product.currentPrice.toFixed(2)}
-                            </p>
-                            {product.weightedAverage && (
-                              <p className="text-xs text-gray-500 line-through whitespace-nowrap">
-                                R$ {product.weightedAverage.toFixed(2)}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 mt-1 justify-end">
-                            <button
-                              onClick={() => showPriceModal(product)}
-                              className="text-gray-400 hover:text-white transition-colors p-1"
-                              title="Ver gráfico"
-                            >
-                              📊
-                            </button>
-                            <a
-                              href={product.product_link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-gray-400 hover:text-white transition-colors p-1"
-                              title="Ver no site"
-                            >
-                              🔗
-                            </a>
-                            <button
-                              onClick={() => toggleFavorite(product.id)}
-                              className="text-gray-400 hover:text-white transition-colors p-1"
-                              title="Remover dos favoritos"
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 text-gray-400">
-                    <p className="text-lg">📌 Nenhum produto favorito</p>
-                    <p className="text-sm mt-2">
-                      Adicione produtos aos favoritos para acompanhar seus preços.
-                    </p>
-                    <p className="text-xs mt-4 text-gray-500">
-                      Use o botão ☆ nos produtos ou nas ofertas para adicionar aos favoritos.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {getFavoriteProducts.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-600">
-                  <div className="text-xs text-gray-400">
-                    💡 Dica: Os favoritos são salvos localmente no seu navegador
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -899,13 +780,6 @@ export default function Home() {
                     </div>
 
                     <div className="flex justify-end gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => toggleFavorite(product.id)}
-                        className="text-gray-400 hover:text-white p-1"
-                        title={isFavorite(product.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-                      >
-                        {isFavorite(product.id) ? '⭐' : '☆'}
-                      </button>
                       <button
                         onClick={() => showPriceModal(product)}
                         className="text-gray-400 hover:text-white p-1"

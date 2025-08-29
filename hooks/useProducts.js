@@ -39,23 +39,11 @@ export const useProducts = () => {
         websites: { kabum: false, pichau: false, terabyte: false },
         is_active: true
     });
-    const [favoriteProducts, setFavoriteProducts] = useState([]);
-
-
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
         fetchInitialData();
-
-        const savedFavorites = localStorage.getItem('favoriteProducts');
-        if (savedFavorites) {
-            try {
-                setFavoriteProducts(JSON.parse(savedFavorites));
-            } catch (e) {
-                console.error('Error loading favorites:', e);
-            }
-        }
 
         const pricesSubscription = supabaseClient
             .channel('price-changes')
@@ -498,27 +486,6 @@ export const useProducts = () => {
         }
     };
 
-    const toggleFavorite = (productId) => {
-        setFavoriteProducts(prev => {
-            let newFavorites;
-            if (prev.includes(productId)) {
-                newFavorites = prev.filter(id => id !== productId);
-            } else {
-                newFavorites = [...prev, productId];
-            }
-            localStorage.setItem('favoriteProducts', JSON.stringify(newFavorites));
-            return newFavorites;
-        });
-    };
-
-    const isFavorite = (productId) => {
-        return favoriteProducts.includes(productId);
-    };
-
-    const getFavoriteProducts = useMemo(() => {
-        return products.filter(p => favoriteProducts.includes(p.id));
-    }, [products, favoriteProducts]);
-
     return {
         // States existentes
         builds,
@@ -569,9 +536,6 @@ export const useProducts = () => {
         handleIntervalChange,
         deleteProduct,
         fetchInitialData,
-        toggleFavorite,
-        isFavorite,
-        getFavoriteProducts,
 
         // Funções para configurações de busca
         fetchSearchConfigs,
