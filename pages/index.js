@@ -60,6 +60,8 @@ export default function Home() {
     fetchSearchConfigs
   } = useProducts();
 
+  const [editingConfig, setEditingConfig] = useState(null);
+
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
 
@@ -184,6 +186,97 @@ export default function Home() {
   };
 
   // Funções de configurações de busca
+  const editSearchConfig = (config) => {
+    setEditingConfig(config);
+    setNewSearch({
+      search_text: config.search_text,
+      keywordGroups: config.keywordGroups || [''],
+      category: config.category,
+      websites: {
+        kabum: config.website === 'kabum',
+        pichau: config.website === 'pichau', 
+        terabyte: config.website === 'terabyte'
+      },
+      is_active: config.is_active
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingConfig(null);
+    setNewSearch({
+      search_text: '',
+      keywordGroups: [''],
+      category: '',
+      websites: { kabum: false, pichau: false, terabyte: false },
+      is_active: true
+    });
+  };
+
+  const updateSearchConfig = async () => {
+    if (!newSearch.search_text || !newSearch.category) return;
+
+    const validKeywordGroups = newSearch.keywordGroups.filter(g => g.trim());
+    if (validKeywordGroups.length === 0) return;
+
+    const selectedWebsites = Object.entries(newSearch.websites)
+      .filter(([_, checked]) => checked)
+      .map(([site]) => site);
+
+    if (selectedWebsites.length === 0) return;
+
+    try {
+      // Delete old keyword groups
+      await supabaseClient
+        .from('keyword_groups')
+        .delete()
+        .eq('search_config_id', editingConfig.id);
+
+      // Update search config
+      await supabaseClient
+        .from('search_configs')
+        .update({
+          search_text: newSearch.search_text,
+          category: newSearch.category,
+          website: selectedWebsites[0], // Use first selected website
+          is_active: newSearch.is_active
+        })
+        .eq('id', editingConfig.id);
+
+      // Add new keyword groups
+      const keywordGroupsData = validKeywordGroups.map(group => ({
+        search_config_id: editingConfig.id,
+        keywords: group
+      }));
+
+      await supabaseClient.from('keyword_groups').insert(keywordGroupsData);
+
+      // Handle additional websites (create new configs if multiple selected)
+      for (let i = 1; i < selectedWebsites.length; i++) {
+        const { data: configData } = await supabaseClient
+          .from('search_configs')
+          .insert([{
+            search_text: newSearch.search_text,
+            category: newSearch.category,
+            website: selectedWebsites[i],
+            is_active: newSearch.is_active
+          }])
+          .select();
+
+        const keywordGroupsData = validKeywordGroups.map(group => ({
+          search_config_id: configData[0].id,
+          keywords: group
+        }));
+
+        await supabaseClient.from('keyword_groups').insert(keywordGroupsData);
+      }
+
+      cancelEdit();
+      window.location.reload();
+    } catch (error) {
+      console.error('Error updating config:', error);
+    }
+  };
+
   const addSearchConfig = async () => {
     if (!newSearch.search_text || !newSearch.category) return;
 
@@ -216,14 +309,7 @@ export default function Home() {
         await supabaseClient.from('keyword_groups').insert(keywordGroupsData);
       }
 
-      setNewSearch({
-        search_text: '',
-        keywordGroups: [''],
-        category: '',
-        websites: { kabum: false, pichau: false, terabyte: false },
-        is_active: true
-      });
-      window.location.reload();
+      cancelEdit();
     } catch (error) {
       console.error('Error adding config:', error);
     }
@@ -821,8 +907,27 @@ export default function Home() {
             <div className="p-4 sm:p-6">
               {/* Nova configuração de busca - RESPONSIVO */}
               <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
-                <h3 className="text-lg font-bold mb-4">Nova Configuração de Busca</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold">
+                    {editingConfig ? 'Editar Configuração de Busca' : 'Nova Configuração de Busca'}
+                  </h3>
+                  {editingConfig && (
+                    <button
+                      onClick={cancelEdit}
+                      className="text-gray-400 hover:text-white text-sm bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <input
+                    type="text"
+                    placeholder="Texto de Busca (ex: memoria ram ddr4)"
+                    value={newSearch.search_text}
+                    onChange={(e) => setNewSearch({ ...newSearch, search_text: e.target.value })}
+                    className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
+                  />
                   <input
                     type="text"
                     placeholder="Categoria"
@@ -884,12 +989,22 @@ export default function Home() {
                     </label>
                   ))}
                 </div>
-                <button
-                  onClick={addSearchConfig}
-                  className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
-                >
-                  Adicionar Configuração
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={editingConfig ? updateSearchConfig : addSearchConfig}
+                    className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
+                  >
+                    {editingConfig ? 'Atualizar Configuração' : 'Adicionar Configuração'}
+                  </button>
+                  {editingConfig && (
+                    <button
+                      onClick={cancelEdit}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-md font-medium transition-colors text-sm sm:text-base"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Configurações ativas */}
@@ -935,12 +1050,22 @@ export default function Home() {
                     <div key={config.id} className="bg-gray-700 rounded-lg p-4">
                       <div className="flex justify-between items-start mb-2">
                         <span className="font-medium break-words pr-2">{config.search_text}</span>
-                        <button
-                          onClick={() => deleteSearchConfig(config.id)}
-                          className="text-red-400 hover:text-red-300 flex-shrink-0"
-                        >
-                          🗑️
-                        </button>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => editSearchConfig(config)}
+                            className="text-blue-400 hover:text-blue-300"
+                            title="Editar configuração"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => deleteSearchConfig(config.id)}
+                            className="text-red-400 hover:text-red-300"
+                            title="Deletar configuração"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-2 mb-2">
                         <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
