@@ -17,7 +17,8 @@ export default async function handler(req, res) {
     // Buscar todos os produtos para obter lista de websites ativos
     const { data: allProducts, error: productsError } = await supabaseClient
       .from('products')
-      .select('website');
+      .select('website')
+      .eq('is_hidden', false); // Considera apenas produtos visíveis
 
     if (productsError) {
       console.error('Error fetching products:', productsError);
@@ -36,7 +37,8 @@ export default async function handler(req, res) {
         .from('prices')
         .select('product_id, products!inner(website)')
         .gte('last_checked_at', thirtyMinutesAgo.toISOString())
-        .eq('products.website', website);
+        .eq('products.website', website)
+        .eq('products.is_hidden', false);
 
       if (recentError) {
         console.error(`Error fetching recent updates for ${website}:`, recentError);
@@ -50,7 +52,8 @@ export default async function handler(req, res) {
         .from('prices')
         .select('product_id, products!inner(website)')
         .gte('last_checked_at', twentyFourHoursAgo.toISOString())
-        .eq('products.website', website);
+        .eq('products.website', website)
+        .eq('products.is_hidden', false);
 
       if (historicalError) {
         console.error(`Error fetching historical data for ${website}:`, historicalError);

@@ -59,7 +59,7 @@ export const ScrapingDashboard = () => {
 
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700 mb-6">
+      <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
           <span className="ml-3 text-gray-400">Carregando status dos scrapers...</span>
@@ -70,7 +70,7 @@ export const ScrapingDashboard = () => {
 
   if (error) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-red-500 mb-6">
+      <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-red-500">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-red-400 mb-2">Erro no Dashboard</h3>
@@ -94,7 +94,7 @@ export const ScrapingDashboard = () => {
   const { stats, summary, timestamp } = dashboardData;
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700 mb-6">
+    <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>

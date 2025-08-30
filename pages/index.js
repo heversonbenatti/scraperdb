@@ -6,6 +6,171 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { supabaseClient } from "@/utils/supabase";
 
+// Componente para card de limite de preço
+const PriceLimitCard = ({ category, limit, onUpdate }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [maxPrice, setMaxPrice] = useState(limit?.max_price || '');
+  const [isActive, setIsActive] = useState(limit?.is_active || false);
+
+  const handleSave = async () => {
+    if (!maxPrice || maxPrice <= 0) {
+      alert('Por favor, insira um preço válido');
+      return;
+    }
+    
+    const success = await onUpdate(category, parseFloat(maxPrice), isActive);
+    if (success) {
+      setIsEditing(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setMaxPrice(limit?.max_price || '');
+    setIsActive(limit?.is_active || false);
+    setIsEditing(false);
+  };
+
+  return (
+    <div className={`bg-gray-700 rounded-lg p-4 border-l-4 ${
+      isActive ? 'border-green-500' : 'border-gray-500'
+    }`}>
+      <div className="flex justify-between items-start mb-3">
+        <h4 className="font-medium text-sm uppercase tracking-wide">
+          {category.replace('_', ' ')}
+        </h4>
+        {limit && (
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className="text-blue-400 hover:text-blue-300 text-sm"
+          >
+            {isEditing ? 'Cancelar' : '✏️ Editar'}
+          </button>
+        )}
+      </div>
+      
+      {isEditing || !limit ? (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Preço Máximo (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded text-sm"
+              placeholder="Ex: 1500.00"
+            />
+          </div>
+          <div>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(e) => setIsActive(e.target.checked)}
+                className="w-4 h-4 text-green-600 bg-gray-600 border-gray-500 rounded"
+              />
+              <span className="text-sm text-gray-300">Ativar limite</span>
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm font-medium"
+            >
+              Salvar
+            </button>
+            {limit && (
+              <button
+                onClick={handleCancel}
+                className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="text-lg font-bold text-green-400 mb-2">
+            R$ {limit.max_price.toFixed(2)}
+          </div>
+          <div className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+            limit.is_active 
+              ? 'bg-green-600 text-green-100' 
+              : 'bg-gray-600 text-gray-100'
+          }`}>
+            {limit.is_active ? 'Ativo' : 'Inativo'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Componente para card de produto oculto
+const HiddenProductCard = ({ product, onShow }) => {
+  const getReasonText = (reason) => {
+    switch (reason) {
+      case 'manual': return '🙅 Escondido manualmente';
+      case 'price_limit_exceeded': return '💰 Preço acima do limite';
+      default: return '❓ Motivo desconhecido';
+    }
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleString('pt-BR');
+  };
+
+  return (
+    <div className="bg-gray-700 rounded-lg p-4 border-l-4 border-yellow-500">
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-sm line-clamp-2 break-words">
+            {product.name}
+          </h4>
+          <div className="flex flex-wrap gap-2 mt-1">
+            <span className="text-xs bg-purple-600 px-2 py-1 rounded">
+              {product.category.replace('_', ' ').toUpperCase()}
+            </span>
+            <span className="text-xs bg-gray-600 px-2 py-1 rounded capitalize">
+              {product.website}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={onShow}
+          className="ml-2 px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium flex-shrink-0"
+          title="Mostrar produto"
+        >
+          👁️ Mostrar
+        </button>
+      </div>
+      
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-bold text-green-400">
+            R$ {product.currentPrice.toFixed(2)}
+          </span>
+          {product.categoryLimit && (
+            <span className="text-xs text-gray-400">
+              Limite: R$ {product.categoryLimit.toFixed(2)}
+            </span>
+          )}
+        </div>
+        
+        <div className="text-xs text-gray-400">
+          <div>{getReasonText(product.hidden_reason)}</div>
+          <div>Oculto em: {formatDate(product.hidden_at)}</div>
+          {product.lastPriceUpdate && (
+            <div>Última atualização: {formatDate(product.lastPriceUpdate)}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
 
@@ -58,10 +223,19 @@ export default function Home() {
     showPriceModal,
     handleIntervalChange,
     deleteProduct,
-    fetchSearchConfigs
+    fetchSearchConfigs,
+    // Funções de ocultação
+    toggleProductVisibility,
+    hiddenProducts,
+    priceLimits,
+    loadingHidden,
+    fetchHiddenProducts,
+    fetchPriceLimits,
+    updatePriceLimit
   } = useProducts();
 
   const [editingConfig, setEditingConfig] = useState(null);
+  const [adminActiveTab, setAdminActiveTab] = useState('searches'); // 'searches', 'price_limits', 'hidden_products'
 
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
@@ -409,13 +583,13 @@ export default function Home() {
     >
       {activeTab === 'home' && (
         <div className="animate-fade-in">
-          {/* Dashboard de Status dos Scrapers */}
-          <ScrapingDashboard />
-
           {/* Container Grid para duas colunas no desktop */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
-            {/* Coluna 1: Melhores Ofertas */}
+            {/* Coluna 1: Dashboard de Status dos Scrapers */}
+            <ScrapingDashboard />
+
+            {/* Coluna 2: Melhores Ofertas */}
             <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
                 <h2 className="text-xl sm:text-2xl font-bold flex items-center">
@@ -472,6 +646,15 @@ export default function Home() {
                             >
                               📊
                             </button>
+                            {userRole === 'admin' && (
+                              <button
+                                onClick={() => toggleProductVisibility(product.id, false)}
+                                className="text-yellow-400 hover:text-yellow-300 transition-colors p-1"
+                                title="Esconder produto"
+                              >
+                                👁️‍🗨️
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -668,6 +851,15 @@ export default function Home() {
                                   >
                                     ⚙️
                                   </button>
+                                  {userRole === 'admin' && (
+                                    <button
+                                      onClick={() => toggleProductVisibility(product.id, false)}
+                                      className="text-yellow-400 hover:text-yellow-300 transition-colors p-1"
+                                      title="Esconder produto"
+                                    >
+                                      👁️‍🗨️
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -888,12 +1080,19 @@ export default function Home() {
                       </a>
                       {userRole === 'admin' && (
                         <button
-                          onClick={() => deleteProduct(product.id, product.name)}
-                          className="text-red-400 hover:text-red-300 p-1"
-                          title="Deletar produto"
+                        onClick={() => toggleProductVisibility(product.id, false)}
+                        className="text-yellow-400 hover:text-yellow-300 p-1"
+                        title="Esconder produto"
                         >
-                          🗑️
+                        👁️‍🗨️
                         </button>
+                      <button
+                        onClick={() => deleteProduct(product.id, product.name)}
+                        className="text-red-400 hover:text-red-300 p-1"
+                        title="Deletar produto"
+                      >
+                        🗑️
+                      </button>
                       )}
                     </div>
                   </div>
@@ -906,11 +1105,54 @@ export default function Home() {
 
       {activeTab === 'admin' && userRole === 'admin' && (
         <div className="space-y-4 sm:space-y-6 animate-fade-in">
-          {/* Conteúdo das configurações de busca */}
+          {/* Abas do Admin */}
           <div className="bg-gray-800 rounded-lg border border-gray-700">
             <div className="p-4 sm:p-6">
-              {/* Nova configuração de busca - RESPONSIVO */}
-              <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
+              {/* Header com abas */}
+              <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-700 pb-4">
+                <button
+                  onClick={() => setAdminActiveTab('searches')}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                    adminActiveTab === 'searches'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  🔍 Configurações de Busca
+                </button>
+                <button
+                  onClick={() => {
+                    setAdminActiveTab('price_limits');
+                    fetchPriceLimits();
+                  }}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                    adminActiveTab === 'price_limits'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  💰 Limites de Preço
+                </button>
+                <button
+                  onClick={() => {
+                    setAdminActiveTab('hidden_products');
+                    fetchHiddenProducts();
+                  }}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
+                    adminActiveTab === 'hidden_products'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  👁️‍🗨️ Produtos Ocultos
+                </button>
+              </div>
+
+              {/* Aba de Configurações de Busca */}
+              {adminActiveTab === 'searches' && (
+                <div>
+                  {/* Nova configuração de busca - RESPONSIVO */}
+                  <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold">
                     {editingConfig ? 'Editar Configuração de Busca' : 'Nova Configuração de Busca'}
@@ -1009,10 +1251,10 @@ export default function Home() {
                     </button>
                   )}
                 </div>
-              </div>
+                  </div>
 
-              {/* Configurações ativas */}
-              <div>
+                  {/* Configurações ativas */}
+                  <div>
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
                   <h3 className="text-lg font-bold">Configurações Ativas</h3>
                   <button
@@ -1090,10 +1332,89 @@ export default function Home() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
+              {/* Aba de Limites de Preço */}
+              {adminActiveTab === 'price_limits' && (
+                <div>
+                  <h3 className="text-lg font-bold mb-4">Configurações de Preço Máximo por Categoria</h3>
+                  <div className="mb-4 p-3 bg-blue-900/20 border border-blue-600/30 rounded-lg">
+                    <p className="text-sm text-blue-200">
+                      📊 Produtos que excederem o preço máximo serão automaticamente escondidos.
+                      Quando o preço baixar, eles voltam a aparecer automaticamente.
+                    </p>
+                  </div>
+                  
+                  {/* Lista de categorias com limites */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {allCategories.map(category => {
+                      const limit = priceLimits.find(l => l.category === category);
+                      return (
+                        <PriceLimitCard
+                          key={category}
+                          category={category}
+                          limit={limit}
+                          onUpdate={updatePriceLimit}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
+              {/* Aba de Produtos Ocultos */}
+              {adminActiveTab === 'hidden_products' && (
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold">Produtos Ocultos</h3>
+                    <button
+                      onClick={fetchHiddenProducts}
+                      disabled={loadingHidden}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-md text-sm font-medium transition-colors"
+                    >
+                      {loadingHidden ? '⏳ Carregando...' : '🔄 Atualizar'}
+                    </button>
+                  </div>
+
+                  {loadingHidden ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
+                      <span className="ml-3 text-gray-400">Carregando produtos ocultos...</span>
+                    </div>
+                  ) : (
+                    <div>
+                      {hiddenProducts.length === 0 ? (
+                        <div className="text-center py-8 text-gray-400">
+                          <p className="text-lg">🎉 Nenhum produto está oculto</p>
+                          <p className="text-sm mt-2">Todos os produtos estão visíveis no momento.</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
+                            <div className="flex flex-wrap gap-4 text-sm text-yellow-200">
+                              <span>📋 Total: {hiddenProducts.length}</span>
+                              <span>🙅 Manual: {hiddenProducts.filter(p => p.hidden_reason === 'manual').length}</span>
+                              <span>💰 Preço: {hiddenProducts.filter(p => p.hidden_reason === 'price_limit_exceeded').length}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {hiddenProducts.map(product => (
+                              <HiddenProductCard
+                                key={product.id}
+                                product={product}
+                                onShow={() => toggleProductVisibility(product.id, true)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

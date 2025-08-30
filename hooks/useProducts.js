@@ -40,6 +40,12 @@ export const useProducts = () => {
         is_active: true
     });
 
+    // Estados para sistema de ocultação
+    const [showHiddenProducts, setShowHiddenProducts] = useState(false);
+    const [hiddenProducts, setHiddenProducts] = useState([]);
+    const [priceLimits, setPriceLimits] = useState([]);
+    const [loadingHidden, setLoadingHidden] = useState(false);
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
@@ -75,10 +81,11 @@ export const useProducts = () => {
                 .order('created_at', { ascending: false });
             setBuilds(buildsData || []);
 
-            // Buscar produtos
+            // Buscar produtos (filtrar ocultos por padrão)
             const { data: productsData } = await supabaseClient
                 .from('products')
-                .select('*');
+                .select('*')
+                .eq('is_hidden', false);
 
             const productsWithPrices = await Promise.all(
                 (productsData || []).map(async (product) => {
@@ -486,6 +493,109 @@ export const useProducts = () => {
         }
     };
 
+    // Funções para sistema de ocultação
+    const toggleProductVisibility = async (productId, currentlyHidden = false) => {
+        try {
+            const action = currentlyHidden ? 'show' : 'hide';
+            const response = await fetch('/api/toggle-product-visibility', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ productId, action })
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                // Atualizar lista de produtos
+                if (action === 'hide') {
+                    setProducts(prev => prev.filter(p => p.id !== productId));
+                } else {
+                    // Recarregar produtos para mostrar o que foi revelado
+                    await fetchInitialData();
+                }
+
+                // Atualizar lista de produtos ocultos se estiver carregada
+                if (hiddenProducts.length > 0) {
+                    await fetchHiddenProducts();
+                }
+
+                console.log(result.message);
+                return true;
+            } else {
+                throw new Error(result.error || 'Erro ao alterar visibilidade');
+            }
+        } catch (error) {
+            console.error('Erro ao alterar visibilidade do produto:', error);
+            alert('Erro ao alterar visibilidade do produto. Tente novamente.');
+            return false;
+        }
+    };
+
+    const fetchHiddenProducts = async () => {
+        setLoadingHidden(true);
+        try {
+            const response = await fetch('/api/hidden-products');
+            const result = await response.json();
+            
+            if (result.success) {
+                setHiddenProducts(result.products || []);
+            } else {
+                throw new Error(result.error || 'Erro ao carregar produtos ocultos');
+            }
+        } catch (error) {
+            console.error('Erro ao buscar produtos ocultos:', error);
+            setHiddenProducts([]);
+        } finally {
+            setLoadingHidden(false);
+        }
+    };
+
+    const fetchPriceLimits = async () => {
+        try {
+            const response = await fetch('/api/category-price-limits');
+            const result = await response.json();
+            
+            if (result.success) {
+                setPriceLimits(result.limits || []);
+            } else {
+                throw new Error(result.error || 'Erro ao carregar limites de preço');
+            }
+        } catch (error) {
+            console.error('Erro ao buscar limites de preço:', error);
+            setPriceLimits([]);
+        }
+    };
+
+    const updatePriceLimit = async (category, maxPrice, isActive) => {
+        try {
+            const response = await fetch('/api/category-price-limits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    category, 
+                    max_price: maxPrice, 
+                    is_active: isActive 
+                })
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                await fetchPriceLimits();
+                // Recarregar produtos para refletir mudanças de visibilidade
+                await fetchInitialData();
+                console.log(result.message);
+                return true;
+            } else {
+                throw new Error(result.error || 'Erro ao salvar limite de preço');
+            }
+        } catch (error) {
+            console.error('Erro ao atualizar limite de preço:', error);
+            alert('Erro ao salvar limite de preço. Tente novamente.');
+            return false;
+        }
+    };
+
     return {
         // States existentes
         builds,
@@ -529,6 +639,13 @@ export const useProducts = () => {
         allCategories,
         allWebsites,
 
+        // Estados para ocultação
+        showHiddenProducts,
+        setShowHiddenProducts,
+        hiddenProducts,
+        priceLimits,
+        loadingHidden,
+
 
         // Functions existentes
         fetchPriceHistory,
@@ -544,6 +661,12 @@ export const useProducts = () => {
         toggleAllSearches,
         deleteSearchConfig,
         getFilteredConfigs,
+
+        // Funções para ocultação
+        toggleProductVisibility,
+        fetchHiddenProducts,
+        fetchPriceLimits,
+        updatePriceLimit,
 
 
     };
