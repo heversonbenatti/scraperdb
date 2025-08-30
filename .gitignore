@@ -42,3 +42,4 @@ next-env.d.ts
 telegram_bot
 scraperall.py
 scraperpichau.py
+db.sql
