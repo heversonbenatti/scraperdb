@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Layout } from "@/components/Layout";
 import { PriceChart } from "@/components/PriceChart";
+import { ScrapingDashboard } from "@/components/ScrapingDashboard";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { supabaseClient } from "@/utils/supabase";
@@ -408,6 +409,9 @@ export default function Home() {
     >
       {activeTab === 'home' && (
         <div className="animate-fade-in">
+          {/* Dashboard de Status dos Scrapers */}
+          <ScrapingDashboard />
+
           {/* Container Grid para duas colunas no desktop */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
