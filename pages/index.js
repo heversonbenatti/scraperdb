@@ -17,7 +17,7 @@ const PriceLimitCard = ({ category, limit, onUpdate }) => {
       alert('Por favor, insira um preço válido');
       return;
     }
-    
+
     const success = await onUpdate(category, parseFloat(maxPrice), isActive);
     if (success) {
       setIsEditing(false);
@@ -31,9 +31,8 @@ const PriceLimitCard = ({ category, limit, onUpdate }) => {
   };
 
   return (
-    <div className={`bg-gray-700 rounded-lg p-4 border-l-4 ${
-      isActive ? 'border-green-500' : 'border-gray-500'
-    }`}>
+    <div className={`bg-gray-700 rounded-lg p-4 border-l-4 ${isActive ? 'border-green-500' : 'border-gray-500'
+      }`}>
       <div className="flex justify-between items-start mb-3">
         <h4 className="font-medium text-sm uppercase tracking-wide">
           {category.replace('_', ' ')}
@@ -47,7 +46,7 @@ const PriceLimitCard = ({ category, limit, onUpdate }) => {
           </button>
         )}
       </div>
-      
+
       {isEditing || !limit ? (
         <div className="space-y-3">
           <div>
@@ -95,11 +94,10 @@ const PriceLimitCard = ({ category, limit, onUpdate }) => {
           <div className="text-lg font-bold text-green-400 mb-2">
             R$ {limit.max_price.toFixed(2)}
           </div>
-          <div className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-            limit.is_active 
-              ? 'bg-green-600 text-green-100' 
-              : 'bg-gray-600 text-gray-100'
-          }`}>
+          <div className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${limit.is_active
+            ? 'bg-green-600 text-green-100'
+            : 'bg-gray-600 text-gray-100'
+            }`}>
             {limit.is_active ? 'Ativo' : 'Inativo'}
           </div>
         </div>
@@ -146,7 +144,7 @@ const HiddenProductCard = ({ product, onShow }) => {
           👁️ Mostrar
         </button>
       </div>
-      
+
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <span className="text-sm font-bold text-green-400">
@@ -158,7 +156,7 @@ const HiddenProductCard = ({ product, onShow }) => {
             </span>
           )}
         </div>
-        
+
         <div className="text-xs text-gray-400">
           <div>{getReasonText(product.hidden_reason)}</div>
           <div>Oculto em: {formatDate(product.hidden_at)}</div>
@@ -369,7 +367,7 @@ export default function Home() {
       category: config.category,
       websites: {
         kabum: config.website === 'kabum',
-        pichau: config.website === 'pichau', 
+        pichau: config.website === 'pichau',
         terabyte: config.website === 'terabyte'
       },
       is_active: config.is_active
@@ -1079,20 +1077,22 @@ export default function Home() {
                         🔗
                       </a>
                       {userRole === 'admin' && (
-                        <button
-                        onClick={() => toggleProductVisibility(product.id, false)}
-                        className="text-yellow-400 hover:text-yellow-300 p-1"
-                        title="Esconder produto"
-                        >
-                        👁️‍🗨️
-                        </button>
-                      <button
-                        onClick={() => deleteProduct(product.id, product.name)}
-                        className="text-red-400 hover:text-red-300 p-1"
-                        title="Deletar produto"
-                      >
-                        🗑️
-                      </button>
+                        <>
+                          <button
+                            onClick={() => toggleProductVisibility(product.id, false)}
+                            className="text-yellow-400 hover:text-yellow-300 p-1"
+                            title="Esconder produto"
+                          >
+                            👁️‍🗨️
+                          </button>
+                          <button
+                            onClick={() => deleteProduct(product.id, product.name)}
+                            className="text-red-400 hover:text-red-300 p-1"
+                            title="Deletar produto"
+                          >
+                            🗑️
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -1112,11 +1112,10 @@ export default function Home() {
               <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-700 pb-4">
                 <button
                   onClick={() => setAdminActiveTab('searches')}
-                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
-                    adminActiveTab === 'searches'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${adminActiveTab === 'searches'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
                 >
                   🔍 Configurações de Busca
                 </button>
@@ -1125,11 +1124,10 @@ export default function Home() {
                     setAdminActiveTab('price_limits');
                     fetchPriceLimits();
                   }}
-                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
-                    adminActiveTab === 'price_limits'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${adminActiveTab === 'price_limits'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
                 >
                   💰 Limites de Preço
                 </button>
@@ -1138,11 +1136,10 @@ export default function Home() {
                     setAdminActiveTab('hidden_products');
                     fetchHiddenProducts();
                   }}
-                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${
-                    adminActiveTab === 'hidden_products'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${adminActiveTab === 'hidden_products'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
                 >
                   👁️‍🗨️ Produtos Ocultos
                 </button>
@@ -1153,185 +1150,186 @@ export default function Home() {
                 <div>
                   {/* Nova configuração de busca - RESPONSIVO */}
                   <div className="bg-gray-700 rounded-lg p-4 sm:p-6 mb-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold">
-                    {editingConfig ? 'Editar Configuração de Busca' : 'Nova Configuração de Busca'}
-                  </h3>
-                  {editingConfig && (
-                    <button
-                      onClick={cancelEdit}
-                      className="text-gray-400 hover:text-white text-sm bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <input
-                    type="text"
-                    placeholder="Texto de Busca (ex: memoria ram ddr4)"
-                    value={newSearch.search_text}
-                    onChange={(e) => setNewSearch({ ...newSearch, search_text: e.target.value })}
-                    className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Categoria"
-                    value={newSearch.category}
-                    onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
-                    className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
-                  />
-                </div>
-                <div className="space-y-2 mb-4">
-                  <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
-                  {newSearch.keywordGroups.map((group, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="ex: x3d,5500,processador"
-                        value={group}
-                        onChange={(e) => {
-                          const updated = [...newSearch.keywordGroups];
-                          updated[idx] = e.target.value;
-                          setNewSearch({ ...newSearch, keywordGroups: updated });
-                        }}
-                        className="flex-1 px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
-                      />
-                      {newSearch.keywordGroups.length > 1 && (
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-bold">
+                        {editingConfig ? 'Editar Configuração de Busca' : 'Nova Configuração de Busca'}
+                      </h3>
+                      {editingConfig && (
                         <button
-                          onClick={() => {
-                            setNewSearch({
-                              ...newSearch,
-                              keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
-                            });
-                          }}
-                          className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors text-sm flex-shrink-0"
+                          onClick={cancelEdit}
+                          className="text-gray-400 hover:text-white text-sm bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded transition-colors"
                         >
-                          ✕
+                          Cancelar
                         </button>
                       )}
                     </div>
-                  ))}
-                  <button
-                    onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
-                    className="px-4 py-2 bg-gray-600 hover:bg-gray-500 border border-gray-500 rounded-md transition-colors text-sm"
-                  >
-                    + Adicionar Grupo
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-4 mb-4">
-                  {Object.keys(newSearch.websites).map(site => (
-                    <label key={site} className="flex items-center space-x-2 cursor-pointer">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <input
-                        type="checkbox"
-                        checked={newSearch.websites[site]}
-                        onChange={(e) => setNewSearch({
-                          ...newSearch,
-                          websites: { ...newSearch.websites, [site]: e.target.checked }
-                        })}
-                        className="w-4 h-4 text-purple-600 bg-gray-600 border-gray-500 rounded"
+                        type="text"
+                        placeholder="Texto de Busca (ex: memoria ram ddr4)"
+                        value={newSearch.search_text}
+                        onChange={(e) => setNewSearch({ ...newSearch, search_text: e.target.value })}
+                        className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
                       />
-                      <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={editingConfig ? updateSearchConfig : addSearchConfig}
-                    className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
-                  >
-                    {editingConfig ? 'Atualizar Configuração' : 'Adicionar Configuração'}
-                  </button>
-                  {editingConfig && (
-                    <button
-                      onClick={cancelEdit}
-                      className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-md font-medium transition-colors text-sm sm:text-base"
-                    >
-                      Cancelar
-                    </button>
-                  )}
-                </div>
+                      <input
+                        type="text"
+                        placeholder="Categoria"
+                        value={newSearch.category}
+                        onChange={(e) => setNewSearch({ ...newSearch, category: e.target.value })}
+                        className="px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
+                      />
+                    </div>
+                    <div className="space-y-2 mb-4">
+                      <p className="text-sm text-gray-400">Palavras-chave (separadas por vírgula):</p>
+                      {newSearch.keywordGroups.map((group, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="ex: x3d,5500,processador"
+                            value={group}
+                            onChange={(e) => {
+                              const updated = [...newSearch.keywordGroups];
+                              updated[idx] = e.target.value;
+                              setNewSearch({ ...newSearch, keywordGroups: updated });
+                            }}
+                            className="flex-1 px-3 sm:px-4 py-2 bg-gray-600 border border-gray-500 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm sm:text-base"
+                          />
+                          {newSearch.keywordGroups.length > 1 && (
+                            <button
+                              onClick={() => {
+                                setNewSearch({
+                                  ...newSearch,
+                                  keywordGroups: newSearch.keywordGroups.filter((_, i) => i !== idx)
+                                });
+                              }}
+                              className="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md transition-colors text-sm flex-shrink-0"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setNewSearch({ ...newSearch, keywordGroups: [...newSearch.keywordGroups, ''] })}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-500 border border-gray-500 rounded-md transition-colors text-sm"
+                      >
+                        + Adicionar Grupo
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-4 mb-4">
+                      {Object.keys(newSearch.websites).map(site => (
+                        <label key={site} className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newSearch.websites[site]}
+                            onChange={(e) => setNewSearch({
+                              ...newSearch,
+                              websites: { ...newSearch.websites, [site]: e.target.checked }
+                            })}
+                            className="w-4 h-4 text-purple-600 bg-gray-600 border-gray-500 rounded"
+                          />
+                          <span className="text-sm">{site.charAt(0).toUpperCase() + site.slice(1)}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={editingConfig ? updateSearchConfig : addSearchConfig}
+                        className="w-full sm:w-auto px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md font-medium transition-colors text-sm sm:text-base"
+                      >
+                        {editingConfig ? 'Atualizar Configuração' : 'Adicionar Configuração'}
+                      </button>
+                      {editingConfig && (
+                        <button
+                          onClick={cancelEdit}
+                          className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-md font-medium transition-colors text-sm sm:text-base"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Configurações ativas */}
                   <div>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
-                  <h3 className="text-lg font-bold">Configurações Ativas</h3>
-                  <button
-                    onClick={() => toggleAllSearches(!globalSearchToggle)}
-                    className={`px-4 py-2 rounded-md font-medium transition-colors text-sm sm:text-base ${globalSearchToggle
-                      ? 'bg-red-600 hover:bg-red-700 text-white'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                      }`}
-                  >
-                    {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
-                  </button>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                  <select
-                    value={configFilters.category}
-                    onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
-                    className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                  >
-                    <option value="">Todas Categorias</option>
-                    {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={configFilters.website}
-                    onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
-                    className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                  >
-                    <option value="">Todos Sites</option>
-                    <option value="kabum">Kabum</option>
-                    <option value="pichau">Pichau</option>
-                    <option value="terabyte">Terabyte</option>
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {getFilteredConfigs().map(config => (
-                    <div key={config.id} className="bg-gray-700 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="font-medium break-words pr-2">{config.search_text}</span>
-                        <div className="flex gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => editSearchConfig(config)}
-                            className="text-blue-400 hover:text-blue-300"
-                            title="Editar configuração"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => deleteSearchConfig(config.id)}
-                            className="text-red-400 hover:text-red-300"
-                            title="Deletar configuração"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
-                        <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
-                        <button
-                          onClick={() => toggleSearchActive(config.id, config.is_active)}
-                          className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'}`}
-                        >
-                          {config.is_active ? 'Ativo' : 'Inativo'}
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {config.keywordGroups.map((group, idx) => (
-                          <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded break-words">
-                            {group}
-                          </span>
-                        ))}
-                      </div>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
+                      <h3 className="text-lg font-bold">Configurações Ativas</h3>
+                      <button
+                        onClick={() => toggleAllSearches(!globalSearchToggle)}
+                        className={`px-4 py-2 rounded-md font-medium transition-colors text-sm sm:text-base ${globalSearchToggle
+                          ? 'bg-red-600 hover:bg-red-700 text-white'
+                          : 'bg-green-600 hover:bg-green-700 text-white'
+                          }`}
+                      >
+                        {globalSearchToggle ? '🛑 Desativar Todas' : '✅ Ativar Todas'}
+                      </button>
                     </div>
-                  ))}
+
+                    <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                      <select
+                        value={configFilters.category}
+                        onChange={(e) => setConfigFilters({ ...configFilters, category: e.target.value })}
+                        className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                      >
+                        <option value="">Todas Categorias</option>
+                        {[...new Set(searchConfigs.map(c => c.category))].map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={configFilters.website}
+                        onChange={(e) => setConfigFilters({ ...configFilters, website: e.target.value })}
+                        className="px-3 sm:px-4 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                      >
+                        <option value="">Todos Sites</option>
+                        <option value="kabum">Kabum</option>
+                        <option value="pichau">Pichau</option>
+                        <option value="terabyte">Terabyte</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {getFilteredConfigs().map(config => (
+                        <div key={config.id} className="bg-gray-700 rounded-lg p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-medium break-words pr-2">{config.search_text}</span>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                onClick={() => editSearchConfig(config)}
+                                className="text-blue-400 hover:text-blue-300"
+                                title="Editar configuração"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => deleteSearchConfig(config.id)}
+                                className="text-red-400 hover:text-red-300"
+                                title="Deletar configuração"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.category}</span>
+                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">{config.website}</span>
+                            <button
+                              onClick={() => toggleSearchActive(config.id, config.is_active)}
+                              className={`text-xs px-2 py-1 rounded ${config.is_active ? 'bg-green-600' : 'bg-red-600'}`}
+                            >
+                              {config.is_active ? 'Ativo' : 'Inativo'}
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {config.keywordGroups.map((group, idx) => (
+                              <span key={idx} className="text-xs bg-purple-600 px-2 py-1 rounded break-words">
+                                {group}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1346,7 +1344,7 @@ export default function Home() {
                       Quando o preço baixar, eles voltam a aparecer automaticamente.
                     </p>
                   </div>
-                  
+
                   {/* Lista de categorias com limites */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {allCategories.map(category => {
@@ -1399,7 +1397,7 @@ export default function Home() {
                               <span>💰 Preço: {hiddenProducts.filter(p => p.hidden_reason === 'price_limit_exceeded').length}</span>
                             </div>
                           </div>
-                          
+
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {hiddenProducts.map(product => (
                               <HiddenProductCard
