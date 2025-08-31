@@ -1,4 +1,4 @@
-import { supabaseClient } from '@/utils/supabase';
+import { supabaseClient } from '@/utils/supabase-admin';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -6,50 +6,80 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Buscar produtos ocultos com seus preços atuais
+    console.log('🔍 Buscando produtos ocultos...');
+
+    // 1. Buscar produtos ocultos (sem join complexo)
     const { data: hiddenProducts, error } = await supabaseClient
       .from('products')
-      .select(`
-        id, name, category, website, product_link, 
-        is_hidden, hidden_reason, hidden_at,
-        prices!inner(price, last_checked_at, price_changed_at)
-      `)
+      .select('id, name, category, website, product_link, is_hidden, hidden_reason, hidden_at')
       .eq('is_hidden', true)
       .order('hidden_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching hidden products:', error);
-      return res.status(500).json({ error: 'Failed to fetch hidden products' });
+      return res.status(500).json({ 
+        error: 'Failed to fetch hidden products',
+        details: error.message
+      });
     }
 
-    // Processar produtos para obter apenas o preço mais recente de cada produto
-    const productsWithLatestPrice = {};
+    if (!hiddenProducts || hiddenProducts.length === 0) {
+      return res.status(200).json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        stats: { total: 0, manual: 0, priceLimit: 0, other: 0, byCategory: {} },
+        products: [],
+        groupedByReason: { manual: [], price_limit_exceeded: [], other: [] },
+        activePriceLimits: {}
+      });
+    }
+
+    console.log(`📦 Encontrados ${hiddenProducts.length} produtos ocultos`);
+
+    // 2. Para cada produto oculto, buscar seu preço mais recente
+    const productsWithPrices = [];
     
-    hiddenProducts?.forEach(product => {
-      const productId = product.id;
+    for (const product of hiddenProducts) {
+      console.log(`💰 Buscando preço para produto ${product.id}: ${product.name.substring(0, 50)}...`);
       
-      if (!productsWithLatestPrice[productId] || 
-          new Date(product.prices.price_changed_at) > new Date(productsWithLatestPrice[productId].lastPriceUpdate)) {
-        
-        productsWithLatestPrice[productId] = {
-          id: product.id,
-          name: product.name,
-          category: product.category,
-          website: product.website,
-          product_link: product.product_link,
-          is_hidden: product.is_hidden,
-          hidden_reason: product.hidden_reason,
-          hidden_at: product.hidden_at,
-          currentPrice: parseFloat(product.prices.price),
-          lastPriceUpdate: product.prices.price_changed_at,
-          lastChecked: product.prices.last_checked_at
-        };
+      const { data: latestPrice, error: priceError } = await supabaseClient
+        .from('prices')
+        .select('price, last_checked_at, price_changed_at, collected_at')
+        .eq('product_id', product.id)
+        .order('price_changed_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      let productWithPrice = {
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        website: product.website,
+        product_link: product.product_link,
+        is_hidden: product.is_hidden,
+        hidden_reason: product.hidden_reason,
+        hidden_at: product.hidden_at,
+        currentPrice: 0,
+        lastPriceUpdate: null,
+        lastChecked: null
+      };
+
+      if (priceError) {
+        console.warn(`⚠️ Erro ao buscar preço do produto ${product.id}:`, priceError.message);
+        // Produto sem preço válido - manter preço 0
+      } else if (latestPrice) {
+        productWithPrice.currentPrice = parseFloat(latestPrice.price) || 0;
+        productWithPrice.lastPriceUpdate = latestPrice.price_changed_at;
+        productWithPrice.lastChecked = latestPrice.last_checked_at || latestPrice.collected_at;
+        console.log(`✅ Preço encontrado para ${product.name}: R$ ${productWithPrice.currentPrice}`);
+      } else {
+        console.warn(`⚠️ Nenhum preço encontrado para produto ${product.id}`);
       }
-    });
 
-    const processedProducts = Object.values(productsWithLatestPrice);
+      productsWithPrices.push(productWithPrice);
+    }
 
-    // Buscar limites de preço ativos para comparação
+    // 3. Buscar limites de preço ativos para comparação
     const { data: priceLimits, error: limitsError } = await supabaseClient
       .from('category_price_limits')
       .select('category, max_price')
@@ -57,29 +87,32 @@ export default async function handler(req, res) {
 
     if (limitsError) {
       console.error('Error fetching price limits:', limitsError);
+      // Continuar sem os limites se houver erro
     }
 
     const limitsMap = {};
     priceLimits?.forEach(limit => {
-      limitsMap[limit.category] = limit.max_price;
+      limitsMap[limit.category] = parseFloat(limit.max_price);
     });
 
-    // Adicionar informação sobre limite de preço
-    processedProducts.forEach(product => {
+    // 4. Adicionar informação sobre limite de preço
+    productsWithPrices.forEach(product => {
       product.categoryLimit = limitsMap[product.category] || null;
-      product.isAboveLimit = product.categoryLimit ? product.currentPrice >= product.categoryLimit : false;
+      product.isAboveLimit = product.categoryLimit && product.currentPrice > 0 
+        ? product.currentPrice >= product.categoryLimit 
+        : false;
     });
 
-    // Agrupar por motivo de ocultação
+    // 5. Agrupar por motivo de ocultação
     const groupedByReason = {
-      manual: processedProducts.filter(p => p.hidden_reason === 'manual'),
-      price_limit_exceeded: processedProducts.filter(p => p.hidden_reason === 'price_limit_exceeded'),
-      other: processedProducts.filter(p => p.hidden_reason !== 'manual' && p.hidden_reason !== 'price_limit_exceeded')
+      manual: productsWithPrices.filter(p => p.hidden_reason === 'manual'),
+      price_limit_exceeded: productsWithPrices.filter(p => p.hidden_reason === 'price_limit_exceeded'),
+      other: productsWithPrices.filter(p => p.hidden_reason !== 'manual' && p.hidden_reason !== 'price_limit_exceeded')
     };
 
-    // Estatísticas
+    // 6. Estatísticas
     const stats = {
-      total: processedProducts.length,
+      total: productsWithPrices.length,
       manual: groupedByReason.manual.length,
       priceLimit: groupedByReason.price_limit_exceeded.length,
       other: groupedByReason.other.length,
@@ -87,18 +120,20 @@ export default async function handler(req, res) {
     };
 
     // Contar por categoria
-    processedProducts.forEach(product => {
+    productsWithPrices.forEach(product => {
       if (!stats.byCategory[product.category]) {
         stats.byCategory[product.category] = 0;
       }
       stats.byCategory[product.category]++;
     });
 
+    console.log(`🎯 Processamento concluído: ${stats.total} produtos (${stats.manual} manual, ${stats.priceLimit} preço, ${stats.other} outros)`);
+
     return res.status(200).json({
       success: true,
       timestamp: new Date().toISOString(),
       stats,
-      products: processedProducts,
+      products: productsWithPrices,
       groupedByReason,
       activePriceLimits: limitsMap
     });

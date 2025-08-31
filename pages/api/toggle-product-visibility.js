@@ -1,4 +1,4 @@
-import { supabaseClient } from '@/utils/supabase';
+import { supabaseAdmin, verifyAdminRole } from '@/utils/supabase-admin';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -6,6 +6,22 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Verificar se o usuário é admin
+    const auth = await verifyAdminRole(req);
+    
+    if (!auth.isAuthenticated) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        details: auth.error
+      });
+    }
+
+    if (!auth.isAdmin) {
+      return res.status(403).json({ 
+        error: 'Admin access required' 
+      });
+    }
+
     const { productId, action } = req.body;
 
     if (!productId || !action || !['hide', 'show'].includes(action)) {
@@ -29,7 +45,8 @@ export default async function handler(req, res) {
       };
     }
 
-    const { data, error } = await supabaseClient
+    // Usar cliente admin para operação
+    const { data, error } = await supabaseAdmin
       .from('products')
       .update(updateData)
       .eq('id', productId)
@@ -37,7 +54,10 @@ export default async function handler(req, res) {
 
     if (error) {
       console.error('Error toggling product visibility:', error);
-      return res.status(500).json({ error: 'Failed to update product visibility' });
+      return res.status(500).json({ 
+        error: 'Failed to update product visibility',
+        details: error.message
+      });
     }
 
     if (!data || data.length === 0) {

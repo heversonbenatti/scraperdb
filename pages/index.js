@@ -120,6 +120,12 @@ const HiddenProductCard = ({ product, onShow }) => {
     return new Date(dateString).toLocaleString('pt-BR');
   };
 
+  // Verificar se o produto tem preço válido
+  const currentPrice = product.currentPrice || 0;
+  const categoryLimit = product.categoryLimit || 0;
+  const hasValidPrice = currentPrice > 0;
+  const hasValidLimit = categoryLimit > 0;
+
   return (
     <div className="bg-gray-700 rounded-lg p-4 border-l-4 border-yellow-500">
       <div className="flex justify-between items-start mb-2">
@@ -148,11 +154,11 @@ const HiddenProductCard = ({ product, onShow }) => {
       <div className="space-y-2">
         <div className="flex justify-between items-center">
           <span className="text-sm font-bold text-green-400">
-            R$ {product.currentPrice.toFixed(2)}
+            {hasValidPrice ? `R$ ${currentPrice.toFixed(2)}` : 'Preço indisponível'}
           </span>
-          {product.categoryLimit && (
+          {hasValidLimit && (
             <span className="text-xs text-gray-400">
-              Limite: R$ {product.categoryLimit.toFixed(2)}
+              Limite: R$ {categoryLimit.toFixed(2)}
             </span>
           )}
         </div>
@@ -229,7 +235,9 @@ export default function Home() {
     loadingHidden,
     fetchHiddenProducts,
     fetchPriceLimits,
-    updatePriceLimit
+    updatePriceLimit,
+    toggleAllPriceLimits,      // 🆕 NOVA FUNÇÃO
+    showAllHiddenProducts      // 🆕 NOVA FUNÇÃO
   } = useProducts();
 
   const [editingConfig, setEditingConfig] = useState(null);
@@ -1337,7 +1345,26 @@ export default function Home() {
               {/* Aba de Limites de Preço */}
               {adminActiveTab === 'price_limits' && (
                 <div>
-                  <h3 className="text-lg font-bold mb-4">Configurações de Preço Máximo por Categoria</h3>
+                  {/* Header com botões de ação */}
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
+                    <h3 className="text-lg font-bold">Configurações de Preço Máximo por Categoria</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => toggleAllPriceLimits(true)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+                        title="Ativar todos os limites de preço"
+                      >
+                        ✅ Ativar Todos
+                      </button>
+                      <button
+                        onClick={() => toggleAllPriceLimits(false)}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+                        title="Desativar todos os limites de preço"
+                      >
+                        🚫 Desativar Todos
+                      </button>
+                    </div>
+                  </div>
                   <div className="mb-4 p-3 bg-blue-900/20 border border-blue-600/30 rounded-lg">
                     <p className="text-sm text-blue-200">
                       📊 Produtos que excederem o preço máximo serão automaticamente escondidos.
@@ -1365,15 +1392,25 @@ export default function Home() {
               {/* Aba de Produtos Ocultos */}
               {adminActiveTab === 'hidden_products' && (
                 <div>
-                  <div className="flex justify-between items-center mb-4">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3">
                     <h3 className="text-lg font-bold">Produtos Ocultos</h3>
-                    <button
-                      onClick={fetchHiddenProducts}
-                      disabled={loadingHidden}
-                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-md text-sm font-medium transition-colors"
-                    >
-                      {loadingHidden ? '⏳ Carregando...' : '🔄 Atualizar'}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={showAllHiddenProducts}
+                        disabled={loadingHidden || hiddenProducts.length === 0}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+                        title="Mostrar todos os produtos ocultos"
+                      >
+                        👁️ Mostrar Todos
+                      </button>
+                      <button
+                        onClick={fetchHiddenProducts}
+                        disabled={loadingHidden}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded-md text-sm font-medium transition-colors"
+                      >
+                        {loadingHidden ? '⏳ Carregando...' : '🔄 Atualizar'}
+                      </button>
+                    </div>
                   </div>
 
                   {loadingHidden ? (

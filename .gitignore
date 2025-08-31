@@ -43,8 +43,7 @@ telegram_bot
 scraperall.py
 scraperpichau.py
 db.sql
-FASE1_DASHBOARD_CONCLUIDA.md
-FASE2_OCULTACAO_CONCLUIDA.md
 PLANO_IMPLEMENTACAO_NOVAS_FUNCIONALIDADES.md
 supabasePolicies.json
-migrations/002_produtos_ocultacao.sql
+/migrations
+/documentations

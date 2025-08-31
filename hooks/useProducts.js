@@ -46,6 +46,25 @@ export const useProducts = () => {
     const [priceLimits, setPriceLimits] = useState([]);
     const [loadingHidden, setLoadingHidden] = useState(false);
 
+    // Helper para obter token de autenticação
+    const getAuthHeaders = async () => {
+        try {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            
+            if (session?.access_token) {
+                return {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                };
+            }
+            
+            return { 'Content-Type': 'application/json' };
+        } catch (error) {
+            console.error('Error getting auth token:', error);
+            return { 'Content-Type': 'application/json' };
+        }
+    };
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
@@ -54,20 +73,49 @@ export const useProducts = () => {
         const pricesSubscription = supabaseClient
             .channel('price-changes')
             .on('postgres_changes', {
-                event: 'INSERT',
+                event: '*', // Escutar INSERT, UPDATE e DELETE
                 schema: 'public',
                 table: 'prices'
             }, payload => {
-                setProducts(prev => prev.map(product =>
-                    product.id === payload.new.product_id
-                        ? { ...product, currentPrice: payload.new.price, lastUpdated: payload.new.last_checked_at || payload.new.collected_at }
-                        : product
-                ));
+                console.log(`🔄 Realtime: ${payload.eventType} em prices para produto ${payload.new?.product_id}`);
+                
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                    const updatedPrice = parseFloat(payload.new.price);
+                    const updatedAt = payload.new.last_checked_at || payload.new.collected_at || payload.new.price_changed_at;
+                    
+                    setProducts(prev => prev.map(product =>
+                        product.id === payload.new.product_id
+                            ? { 
+                                ...product, 
+                                currentPrice: updatedPrice,
+                                lastUpdated: updatedAt,
+                                // Recalcular change% com o preço anterior armazenado
+                                priceChange: product.previousPrice > 0 
+                                    ? ((updatedPrice - product.previousPrice) / product.previousPrice * 100)
+                                    : 0
+                            }
+                            : product
+                    ));
+                    
+                    // Também atualizar nas ofertas se necessário
+                    setTopDrops(prev => prev.map(product =>
+                        product.id === payload.new.product_id
+                            ? { 
+                                ...product, 
+                                currentPrice: updatedPrice,
+                                lastUpdated: updatedAt
+                            }
+                            : product
+                    ));
+                }
             })
             .subscribe();
 
+        // Cleanup subscription
         return () => {
-            supabaseClient.removeChannel(pricesSubscription);
+            if (pricesSubscription) {
+                supabaseClient.removeChannel(pricesSubscription);
+            }
         };
     }, []);
 
@@ -75,51 +123,198 @@ export const useProducts = () => {
         if (typeof window === 'undefined') return;
 
         try {
-            const { data: buildsData } = await supabaseClient
+            console.log('🚀 Iniciando carregamento otimizado de dados...');
+            
+            // Buscar builds em paralelo
+            const buildsPromise = supabaseClient
                 .from('builds')
                 .select('*')
                 .order('created_at', { ascending: false });
-            setBuilds(buildsData || []);
 
             // Buscar produtos (filtrar ocultos por padrão)
-            const { data: productsData } = await supabaseClient
+            const productsPromise = supabaseClient
                 .from('products')
                 .select('*')
                 .eq('is_hidden', false);
 
-            const productsWithPrices = await Promise.all(
-                (productsData || []).map(async (product) => {
-                    // Buscar TODO o histórico de preços para cálculo correto
-                    const { data: allPricesData } = await supabaseClient
-                        .from('prices')
-                        .select('price, collected_at, price_changed_at, last_checked_at, check_count')
-                        .eq('product_id', product.id)
-                        .order('price_changed_at', { ascending: false });
+            const [{ data: buildsData }, { data: productsData }] = await Promise.all([
+                buildsPromise,
+                productsPromise
+            ]);
 
-                    if (!allPricesData || allPricesData.length === 0) {
+            setBuilds(buildsData || []);
+            console.log(`📁 ${productsData?.length || 0} produtos encontrados`);
+
+            if (!productsData || productsData.length === 0) {
+                setProducts([]);
+                setTopDrops([]);
+                setLoading(false);
+                return;
+            }
+
+            // OTIMIZAÇÃO: Tentar usar a função RPC super otimizada primeiro
+            console.log(`📊 Tentando busca ultra-otimizada de produtos com preços...`);
+            
+            // Tentar usar a função RPC completa (inclui produtos + preços em uma query)
+            const { data: completeData, error: completeError } = await supabaseClient
+                .rpc('get_products_with_latest_prices', { include_hidden: false });
+
+            if (!completeError && completeData && completeData.length > 0) {
+                console.log(`⭐ ULTRA-OTIMIZADO: ${completeData.length} produtos com preços obtidos em uma única query!`);
+                
+                // Converter para formato esperado
+                const optimizedProducts = completeData.map(item => {
+                    const product = {
+                        id: item.product_id,
+                        name: item.product_name,
+                        category: item.product_category,
+                        website: item.product_website,
+                        product_link: item.product_link,
+                        is_hidden: item.is_hidden,
+                        hidden_reason: item.hidden_reason,
+                        hidden_at: item.hidden_at,
+                        currentPrice: parseFloat(item.current_price),
+                        lastUpdated: item.last_checked_at || item.price_changed_at,
+                        price_changed_at: item.price_changed_at
+                    };
+                    return product;
+                }).filter(p => p.currentPrice > 0);
+
+                // Para produtos otimizados, buscar histórico apenas para cálculo de média
+                const productsWithHistory = await Promise.all(
+                    optimizedProducts.map(async (product) => {
+                        // Buscar apenas alguns registros históricos para média
+                        const { data: historicalPrices } = await supabaseClient
+                            .from('prices')
+                            .select('price, check_count')
+                            .eq('product_id', product.id)
+                            .neq('price', product.currentPrice)
+                            .order('price_changed_at', { ascending: false })
+                            .limit(5); // Apenas 5 registros para performance
+
+                        let weightedAverage = product.currentPrice;
+                        let previousPrice = product.currentPrice;
+
+                        if (historicalPrices && historicalPrices.length > 0) {
+                            previousPrice = parseFloat(historicalPrices[0].price);
+                            
+                            const totalWeight = historicalPrices.reduce((sum, p) => sum + Math.max(1, p.check_count || 1), 0);
+                            const weightedSum = historicalPrices.reduce((sum, p) => sum + (parseFloat(p.price) * Math.max(1, p.check_count || 1)), 0);
+
+                            if (totalWeight > 0) {
+                                weightedAverage = weightedSum / totalWeight;
+                            }
+                        }
+
+                        const priceChange = previousPrice > 0 ? ((product.currentPrice - previousPrice) / previousPrice * 100) : 0;
+
+                        return {
+                            ...product,
+                            previousPrice,
+                            priceChange,
+                            weightedAverage
+                        };
+                    })
+                );
+
+                console.log(`✅ OTIMIZADO: ${productsWithHistory.length} produtos processados com histórico`);
+                
+                setProducts(productsWithHistory);
+                const promotionalProducts = await calculatePromotions(productsWithHistory);
+                setTopDrops(promotionalProducts);
+                console.log(`🎆 ${promotionalProducts.length} promoções encontradas`);
+                
+                await fetchSearchConfigs();
+                console.log('✅ Carregamento ULTRA-OTIMIZADO completo!');
+                setLoading(false);
+                return; // Sair da função - já processamos tudo
+            }
+
+            console.log('⚠️ Função ultra-otimizada não disponível, usando método padrão otimizado...');
+
+            // FALLBACK: OTIMIZAÇÃO com RPC de preços
+            const productIds = productsData.map(p => p.id);
+            console.log(`📊 Buscando preços para ${productIds.length} produtos...`);
+            
+            let latestPricesMap = {};
+            const { data: rpcPrices, error: rpcError } = await supabaseClient
+                .rpc('get_latest_prices_by_products', { product_ids: productIds });
+
+            if (!rpcError && rpcPrices) {
+                console.log(`✅ RPC: ${rpcPrices.length} preços obtidos via função otimizada`);
+                rpcPrices.forEach(price => {
+                    latestPricesMap[price.product_id] = {
+                        price: parseFloat(price.price),
+                        price_changed_at: price.price_changed_at,
+                        last_checked_at: price.last_checked_at
+                    };
+                });
+            } else {
+                console.warn('⚠️ RPC de preços não disponível, usando consulta padrão...', rpcError?.message);
+                
+                // FALLBACK FINAL: buscar em lote usando IN
+                const { data: batchPrices } = await supabaseClient
+                    .from('prices')
+                    .select('product_id, price, price_changed_at, last_checked_at')
+                    .in('product_id', productIds)
+                    .order('price_changed_at', { ascending: false });
+
+                // Agrupar por product_id e pegar o mais recente
+                if (batchPrices) {
+                    const grouped = {};
+                    batchPrices.forEach(price => {
+                        if (!grouped[price.product_id]) {
+                            grouped[price.product_id] = price;
+                        }
+                    });
+                    
+                    Object.entries(grouped).forEach(([productId, price]) => {
+                        latestPricesMap[productId] = {
+                            price: parseFloat(price.price),
+                            price_changed_at: price.price_changed_at,
+                            last_checked_at: price.last_checked_at
+                        };
+                    });
+                    
+                    console.log(`✅ Batch: ${Object.keys(latestPricesMap).length} preços obtidos em lote`);
+                }
+            }
+
+            // Processar produtos com preços
+            const productsWithPrices = await Promise.all(
+                productsData.map(async (product) => {
+                    const latestPrice = latestPricesMap[product.id];
+                    
+                    if (!latestPrice) {
                         return {
                             ...product,
                             currentPrice: 0,
                             previousPrice: 0,
                             priceChange: 0,
-                            lastUpdated: null
+                            lastUpdated: null,
+                            weightedAverage: 0
                         };
                     }
 
-                    // 1. Preço atual (mais recente) - IGNORAR check_count
-                    const currentPrice = parseFloat(allPricesData[0].price);
-                    const lastUpdated = allPricesData[0].last_checked_at || allPricesData[0].collected_at;
+                    const currentPrice = latestPrice.price;
+                    const lastUpdated = latestPrice.last_checked_at || latestPrice.price_changed_at;
 
-                    // 2. Calcular mudança de 24h para compatibilidade (apenas para interface)
-                    const previousPrice = allPricesData.length > 1 ? parseFloat(allPricesData[1].price) : currentPrice;
-                    const priceChange = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice * 100) : 0;
+                    // Para cálculo de média histórica, buscar apenas alguns registros históricos
+                    const { data: historicalPrices } = await supabaseClient
+                        .from('prices')
+                        .select('price, check_count')
+                        .eq('product_id', product.id)
+                        .neq('price', currentPrice) // Excluir o preço atual
+                        .order('price_changed_at', { ascending: false })
+                        .limit(10); // Limitar a 10 registros históricos para performance
 
-                    // 3. Calcular média histórica ponderada (EXCLUINDO o preço atual)
-                    let weightedAverage = currentPrice; // Fallback se não houver histórico
+                    // Calcular média histórica ponderada
+                    let weightedAverage = currentPrice;
+                    let previousPrice = currentPrice;
 
-                    if (allPricesData.length > 1) {
-                        const historicalPrices = allPricesData.slice(1); // Remove o preço atual
-
+                    if (historicalPrices && historicalPrices.length > 0) {
+                        previousPrice = parseFloat(historicalPrices[0].price);
+                        
                         const totalWeight = historicalPrices.reduce((sum, p) => sum + Math.max(1, p.check_count || 1), 0);
                         const weightedSum = historicalPrices.reduce((sum, p) => sum + (parseFloat(p.price) * Math.max(1, p.check_count || 1)), 0);
 
@@ -127,6 +322,8 @@ export const useProducts = () => {
                             weightedAverage = weightedSum / totalWeight;
                         }
                     }
+
+                    const priceChange = previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice * 100) : 0;
 
                     return {
                         ...product,
@@ -140,13 +337,17 @@ export const useProducts = () => {
             );
 
             const validProducts = productsWithPrices.filter(p => p.currentPrice > 0);
+            console.log(`✅ ${validProducts.length} produtos com preços válidos processados`);
+            
             setProducts(validProducts);
 
             // Calcular promoções usando a nova lógica
             const promotionalProducts = await calculatePromotions(validProducts);
             setTopDrops(promotionalProducts);
+            console.log(`🎆 ${promotionalProducts.length} promoções encontradas`);
 
             await fetchSearchConfigs();
+            console.log('✅ Carregamento completo!');
             setLoading(false);
         } catch (error) {
             console.error('Error fetching data:', error);
@@ -280,8 +481,6 @@ export const useProducts = () => {
         }
         return filtered;
     };
-
-
 
     // Calcular promoções (mantém a função existente)
     const calculatePromotions = async (productsWithPrices) => {
@@ -493,13 +692,18 @@ export const useProducts = () => {
         }
     };
 
-    // Funções para sistema de ocultação
+    // ========================================
+    // 🔒 FUNÇÕES PARA SISTEMA DE OCULTAÇÃO (FASE 2) - COM AUTENTICAÇÃO
+    // ========================================
+
     const toggleProductVisibility = async (productId, currentlyHidden = false) => {
         try {
             const action = currentlyHidden ? 'show' : 'hide';
+            const headers = await getAuthHeaders();
+
             const response = await fetch('/api/toggle-product-visibility', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ productId, action })
             });
 
@@ -509,6 +713,8 @@ export const useProducts = () => {
                 // Atualizar lista de produtos
                 if (action === 'hide') {
                     setProducts(prev => prev.filter(p => p.id !== productId));
+                    // Também remover das ofertas (topDrops)
+                    setTopDrops(prev => prev.filter(p => p.id !== productId));
                 } else {
                     // Recarregar produtos para mostrar o que foi revelado
                     await fetchInitialData();
@@ -526,7 +732,7 @@ export const useProducts = () => {
             }
         } catch (error) {
             console.error('Erro ao alterar visibilidade do produto:', error);
-            alert('Erro ao alterar visibilidade do produto. Tente novamente.');
+            alert(`Erro ao alterar visibilidade do produto: ${error.message}`);
             return false;
         }
     };
@@ -545,6 +751,7 @@ export const useProducts = () => {
         } catch (error) {
             console.error('Erro ao buscar produtos ocultos:', error);
             setHiddenProducts([]);
+            alert(`Erro ao carregar produtos ocultos: ${error.message}`);
         } finally {
             setLoadingHidden(false);
         }
@@ -563,14 +770,17 @@ export const useProducts = () => {
         } catch (error) {
             console.error('Erro ao buscar limites de preço:', error);
             setPriceLimits([]);
+            alert(`Erro ao carregar limites de preço: ${error.message}`);
         }
     };
 
     const updatePriceLimit = async (category, maxPrice, isActive) => {
         try {
+            const headers = await getAuthHeaders();
+
             const response = await fetch('/api/category-price-limits', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ 
                     category, 
                     max_price: maxPrice, 
@@ -591,7 +801,67 @@ export const useProducts = () => {
             }
         } catch (error) {
             console.error('Erro ao atualizar limite de preço:', error);
-            alert('Erro ao salvar limite de preço. Tente novamente.');
+            alert(`Erro ao salvar limite de preço: ${error.message}`);
+            return false;
+        }
+    };
+
+    // 🆕 FUNÇÃO PARA ATIVAR/DESATIVAR TODOS OS LIMITES
+    const toggleAllPriceLimits = async (activate) => {
+        try {
+            const headers = await getAuthHeaders();
+            const action = activate ? 'activate_all' : 'deactivate_all';
+
+            const response = await fetch('/api/toggle-all-price-limits', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ action })
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                await fetchPriceLimits();
+                // Recarregar produtos para refletir mudanças de visibilidade
+                await fetchInitialData();
+                console.log(result.message);
+                alert(result.message);
+                return true;
+            } else {
+                throw new Error(result.error || 'Erro ao alterar todos os limites');
+            }
+        } catch (error) {
+            console.error('Erro ao alterar todos os limites:', error);
+            alert(`Erro ao alterar limites: ${error.message}`);
+            return false;
+        }
+    };
+
+    // 🆕 FUNÇÃO PARA MOSTRAR TODOS OS PRODUTOS OCULTOS
+    const showAllHiddenProducts = async () => {
+        try {
+            const headers = await getAuthHeaders();
+
+            const response = await fetch('/api/show-all-hidden-products', {
+                method: 'POST',
+                headers
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                // Recarregar tudo para refletir mudanças
+                await fetchInitialData();
+                await fetchHiddenProducts();
+                console.log(result.message);
+                alert(result.message);
+                return true;
+            } else {
+                throw new Error(result.error || 'Erro ao mostrar todos os produtos');
+            }
+        } catch (error) {
+            console.error('Erro ao mostrar todos os produtos:', error);
+            alert(`Erro ao mostrar produtos: ${error.message}`);
             return false;
         }
     };
@@ -605,6 +875,7 @@ export const useProducts = () => {
         searchConfigs,
         setSearchConfigs,
         topDrops,
+        setTopDrops,
         selectedProduct,
         setSelectedProduct,
         priceHistory,
@@ -632,8 +903,6 @@ export const useProducts = () => {
         newSearch,
         setNewSearch,
 
-
-
         // Computed values
         getSortedProducts,
         allCategories,
@@ -645,7 +914,6 @@ export const useProducts = () => {
         hiddenProducts,
         priceLimits,
         loadingHidden,
-
 
         // Functions existentes
         fetchPriceHistory,
@@ -662,12 +930,12 @@ export const useProducts = () => {
         deleteSearchConfig,
         getFilteredConfigs,
 
-        // Funções para ocultação
+        // Funções para ocultação (com autenticação)
         toggleProductVisibility,
         fetchHiddenProducts,
         fetchPriceLimits,
         updatePriceLimit,
-
-
+        toggleAllPriceLimits,      // 🆕 NOVA FUNÇÃO
+        showAllHiddenProducts,     // 🆕 NOVA FUNÇÃO
     };
 };
