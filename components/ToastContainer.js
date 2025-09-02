@@ -1,1 +1,126 @@
-import { useEffect, useState } from 'react';\n\nconst Toast = ({ toast, onRemove }) => {\n  const [isVisible, setIsVisible] = useState(false);\n  const [isExiting, setIsExiting] = useState(false);\n\n  useEffect(() => {\n    // Entrada animada\n    const timer = setTimeout(() => setIsVisible(true), 100);\n    return () => clearTimeout(timer);\n  }, []);\n\n  const handleClose = () => {\n    setIsExiting(true);\n    setTimeout(() => onRemove(toast.id), 300);\n  };\n\n  const getToastIcon = () => {\n    switch (toast.type) {\n      case 'success':\n        return '✅';\n      case 'error':\n        return '❌';\n      case 'warning':\n        return '⚠️';\n      case 'info':\n      default:\n        return '💬';\n    }\n  };\n\n  const getToastColors = () => {\n    switch (toast.type) {\n      case 'success':\n        return 'bg-green-600 border-green-500';\n      case 'error':\n        return 'bg-red-600 border-red-500';\n      case 'warning':\n        return 'bg-yellow-600 border-yellow-500';\n      case 'info':\n      default:\n        return 'bg-blue-600 border-blue-500';\n    }\n  };\n\n  return (\n    <div\n      className={`\n        transform transition-all duration-300 ease-in-out mb-2\n        ${\n          isVisible && !isExiting\n            ? 'translate-x-0 opacity-100'\n            : 'translate-x-full opacity-0'\n        }\n        max-w-sm w-full ${getToastColors()} border-l-4 rounded-lg shadow-lg\n        text-white\n      `}\n    >\n      <div className=\"flex items-center p-4\">\n        <span className=\"text-lg mr-3 flex-shrink-0\">\n          {getToastIcon()}\n        </span>\n        <div className=\"flex-1 min-w-0\">\n          <p className=\"text-sm font-medium break-words pr-2\">\n            {toast.message}\n          </p>\n        </div>\n        <button\n          onClick={handleClose}\n          className=\"ml-2 flex-shrink-0 text-white hover:text-gray-200 transition-colors\"\n          title=\"Fechar notificação\"\n        >\n          <svg className=\"w-4 h-4\" fill=\"currentColor\" viewBox=\"0 0 20 20\">\n            <path fillRule=\"evenodd\" d=\"M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z\" clipRule=\"evenodd\" />\n          </svg>\n        </button>\n      </div>\n      \n      {/* Barra de progresso para mostrar tempo restante */}\n      {toast.duration > 0 && (\n        <div className=\"h-1 bg-black bg-opacity-20 rounded-b-lg overflow-hidden\">\n          <div \n            className=\"h-full bg-white bg-opacity-30 transition-all ease-linear\"\n            style={{\n              animation: `shrink ${toast.duration}ms linear forwards`\n            }}\n          />\n        </div>\n      )}\n      \n      <style jsx>{`\n        @keyframes shrink {\n          from {\n            width: 100%;\n          }\n          to {\n            width: 0%;\n          }\n        }\n      `}</style>\n    </div>\n  );\n};\n\nconst ToastContainer = ({ toasts, onRemoveToast }) => {\n  if (toasts.length === 0) return null;\n\n  return (\n    <div className=\"fixed top-4 right-4 z-[9999] space-y-2\">\n      {toasts.map((toast) => (\n        <Toast\n          key={toast.id}\n          toast={toast}\n          onRemove={onRemoveToast}\n        />\n      ))}\n    </div>\n  );\n};\n\nexport { Toast, ToastContainer };\nexport default ToastContainer;\n"
+import { useEffect, useState } from 'react';
+
+const Toast = ({ toast, onRemove }) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    // Entrada animada
+    const timer = setTimeout(() => setIsVisible(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleClose = () => {
+    setIsExiting(true);
+    setTimeout(() => onRemove(toast.id), 300);
+  };
+
+  const getToastIcon = () => {
+    switch (toast.type) {
+      case 'success':
+        return '✅';
+      case 'error':
+        return '❌';
+      case 'warning':
+        return '⚠️';
+      case 'info':
+      default:
+        return '💬';
+    }
+  };
+
+  const getToastColors = () => {
+    switch (toast.type) {
+      case 'success':
+        return 'bg-green-600 border-green-500';
+      case 'error':
+        return 'bg-red-600 border-red-500';
+      case 'warning':
+        return 'bg-yellow-600 border-yellow-500';
+      case 'info':
+      default:
+        return 'bg-blue-600 border-blue-500';
+    }
+  };
+
+  return (
+    <>
+      <style jsx>{`
+        @keyframes toast-shrink {
+          from {
+            width: 100%;
+          }
+          to {
+            width: 0%;
+          }
+        }
+        .progress-bar {
+          animation: toast-shrink ${toast.duration || 5000}ms linear forwards;
+        }
+      `}</style>
+      
+      <div
+        className={`
+          transform transition-all duration-300 ease-in-out mb-2
+          ${
+            isVisible && !isExiting
+              ? 'translate-x-0 opacity-100'
+              : 'translate-x-full opacity-0'
+          }
+          max-w-sm w-full ${getToastColors()} border-l-4 rounded-lg shadow-lg
+          text-white
+        `}
+      >
+        <div className="flex items-center p-4">
+          <span className="text-lg mr-3 flex-shrink-0">
+            {getToastIcon()}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium break-words pr-2">
+              {toast.message}
+            </p>
+          </div>
+          <button
+            onClick={handleClose}
+            className="ml-2 flex-shrink-0 text-white hover:text-gray-200 transition-colors"
+            title="Fechar notificação"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path 
+                fillRule="evenodd" 
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" 
+                clipRule="evenodd" 
+              />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Barra de progresso para mostrar tempo restante */}
+        {toast.duration && toast.duration > 0 && (
+          <div className="h-1 bg-black bg-opacity-20 rounded-b-lg overflow-hidden">
+            <div className="progress-bar h-full bg-white bg-opacity-30 transition-all ease-linear" />
+          </div>
+        )}
+      </div>
+    </>
+  );
+};
+
+const ToastContainer = ({ toasts, onRemoveToast }) => {
+  if (!toasts || toasts.length === 0) return null;
+
+  return (
+    <div className="fixed top-4 right-4 z-[9999] space-y-2">
+      {toasts.map((toast) => (
+        <Toast
+          key={toast.id}
+          toast={toast}
+          onRemove={onRemoveToast}
+        />
+      ))}
+    </div>
+  );
+};
+
+export { Toast, ToastContainer };
+export default ToastContainer;
