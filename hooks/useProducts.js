@@ -46,6 +46,9 @@ export const useProducts = () => {
     const [priceLimits, setPriceLimits] = useState([]);
     const [loadingHidden, setLoadingHidden] = useState(false);
 
+    // Estados para sistema de toast notifications
+    const [toasts, setToasts] = useState([]);
+
     // Helper para obter token de autenticação
     const getAuthHeaders = async () => {
         try {
@@ -676,6 +679,9 @@ export const useProducts = () => {
     const deleteProduct = async (id, productName) => {
         if (confirm(`Remover o produto "${productName}"?\n\nISTO IRÁ APAGAR TAMBÉM TODO O HISTÓRICO DE PREÇOS!`)) {
             try {
+                // Toast de feedback instantâneo
+                showInfo(`Removendo produto "${productName}"...`, 2000);
+                
                 await supabaseClient.from('prices').delete().eq('product_id', id);
                 await supabaseClient.from('products').delete().eq('id', id);
                 setProducts(prev => prev.filter(p => p.id !== id));
@@ -685,56 +691,126 @@ export const useProducts = () => {
                 }
 
                 console.log(`✅ Produto "${productName}" e seu histórico de preços foram removidos`);
+                showSuccess(`Produto "${productName}" foi removido com sucesso`);
             } catch (error) {
                 console.error('Erro ao deletar produto:', error);
-                alert('Erro ao deletar produto. Tente novamente.');
+                showError('Erro ao deletar produto. Tente novamente.');
             }
         }
     };
+
+    // ℹ️ FUNÇÕES PARA TOAST NOTIFICATIONS
+    const addToast = (message, type = 'info', duration = 4000) => {
+        const id = Date.now() + Math.random();
+        const toast = { id, message, type, duration, timestamp: Date.now() };
+        
+        setToasts(prev => [...prev, toast]);
+        
+        if (duration > 0) {
+            setTimeout(() => removeToast(id), duration);
+        }
+        
+        return id;
+    };
+    
+    const removeToast = (id) => {
+        setToasts(prev => prev.filter(toast => toast.id !== id));
+    };
+    
+    const showSuccess = (message, duration = 3000) => addToast(message, 'success', duration);
+    const showError = (message, duration = 6000) => addToast(message, 'error', duration);
+    const showWarning = (message, duration = 4000) => addToast(message, 'warning', duration);
+    const showInfo = (message, duration = 4000) => addToast(message, 'info', duration);
 
     // ========================================
     // 🔒 FUNÇÕES PARA SISTEMA DE OCULTAÇÃO (FASE 2) - COM AUTENTICAÇÃO
     // ========================================
 
+    // 🏃‍♂️ FUNÇÃO OTIMIZADA: Ocultação instantânea + notificações
     const toggleProductVisibility = async (productId, currentlyHidden = false) => {
+        const action = currentlyHidden ? 'show' : 'hide';
+        const productName = getProductName(productId);
+        
+        // 🚀 OPTIMISTIC UPDATE: Atualizar UI instantaneamente
+        const originalProductsState = [...products];
+        const originalTopDropsState = [...topDrops];
+        
+        if (action === 'hide') {
+            // Remover instantaneamente da UI
+            setProducts(prev => prev.filter(p => p.id !== productId));
+            setTopDrops(prev => prev.filter(p => p.id !== productId));
+            
+            // Mostrar toast de sucesso instantâneo
+            showInfo(`Produto "${productName}" foi ocultado`, 2000);
+            
+            console.log(`🚀 INSTANTÂNEO: Produto ${productId} removido da UI`);
+        } else {
+            // Para mostrar, é mais complexo, então vamos manter o comportamento atual
+            showInfo('Mostrando produto...', 2000);
+        }
+        
         try {
-            const action = currentlyHidden ? 'show' : 'hide';
+            // 📡 BACKGROUND: Enviar para o banco em paralelo
             const headers = await getAuthHeaders();
-
+            
             const response = await fetch('/api/toggle-product-visibility', {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({ productId, action })
             });
-
+            
             const result = await response.json();
             
             if (result.success) {
-                // Atualizar lista de produtos
-                if (action === 'hide') {
-                    setProducts(prev => prev.filter(p => p.id !== productId));
-                    // Também remover das ofertas (topDrops)
-                    setTopDrops(prev => prev.filter(p => p.id !== productId));
-                } else {
-                    // Recarregar produtos para mostrar o que foi revelado
+                // ✅ SUCESSO: Confirmar ação
+                if (action === 'show') {
+                    // Para mostrar, recarregar dados para garantir consistência
                     await fetchInitialData();
+                    showSuccess(`Produto "${productName}" foi exibido novamente`);
+                } else {
+                    // Para ocultar, já foi feito otimisticamente
+                    showSuccess(`Produto "${productName}" foi ocultado com sucesso`);
                 }
-
-                // Atualizar lista de produtos ocultos se estiver carregada
+                
+                // Atualizar produtos ocultos se estiver carregado
                 if (hiddenProducts.length > 0) {
                     await fetchHiddenProducts();
                 }
-
-                console.log(result.message);
+                
+                console.log(`✅ CONFIRMADO: ${result.message}`);
                 return true;
+                
             } else {
                 throw new Error(result.error || 'Erro ao alterar visibilidade');
             }
+            
         } catch (error) {
-            console.error('Erro ao alterar visibilidade do produto:', error);
-            alert(`Erro ao alterar visibilidade do produto: ${error.message}`);
+            console.error('❌ ERRO na ocultação:', error);
+            
+            // 🔄 ROLLBACK: Reverter estado original em caso de erro
+            if (action === 'hide') {
+                console.log('🔄 ROLLBACK: Restaurando produto na UI...');
+                setProducts(originalProductsState);
+                setTopDrops(originalTopDropsState);
+            }
+            
+            // Mostrar erro com detalhes
+            showError(`Erro ao ${action === 'hide' ? 'ocultar' : 'exibir'} produto: ${error.message}`);
             return false;
         }
+    };
+    
+    // Helper para pegar nome do produto por ID
+    const getProductName = (productId) => {
+        const product = products.find(p => p.id === productId) || 
+                       topDrops.find(p => p.id === productId) ||
+                       hiddenProducts.find(p => p.id === productId);
+        
+        if (product) {
+            const name = product.name || product.product_name || '';
+            return name.length > 30 ? name.substring(0, 30) + '...' : name;
+        }
+        return 'Produto';
     };
 
     const fetchHiddenProducts = async () => {
@@ -751,7 +827,7 @@ export const useProducts = () => {
         } catch (error) {
             console.error('Erro ao buscar produtos ocultos:', error);
             setHiddenProducts([]);
-            alert(`Erro ao carregar produtos ocultos: ${error.message}`);
+            showError(`Erro ao carregar produtos ocultos: ${error.message}`); // Toast em vez de alert
         } finally {
             setLoadingHidden(false);
         }
@@ -770,13 +846,16 @@ export const useProducts = () => {
         } catch (error) {
             console.error('Erro ao buscar limites de preço:', error);
             setPriceLimits([]);
-            alert(`Erro ao carregar limites de preço: ${error.message}`);
+            showError(`Erro ao carregar limites de preço: ${error.message}`); // Toast em vez de alert
         }
     };
 
     const updatePriceLimit = async (category, maxPrice, isActive) => {
         try {
             const headers = await getAuthHeaders();
+            
+            // Toast de feedback instantâneo
+            showInfo(`Salvando limite de preço para ${category.replace('_', ' ')}...`, 2000);
 
             const response = await fetch('/api/category-price-limits', {
                 method: 'POST',
@@ -795,22 +874,25 @@ export const useProducts = () => {
                 // Recarregar produtos para refletir mudanças de visibilidade
                 await fetchInitialData();
                 console.log(result.message);
+                showSuccess(`Limite de preço salvo com sucesso!`);
                 return true;
             } else {
                 throw new Error(result.error || 'Erro ao salvar limite de preço');
             }
         } catch (error) {
             console.error('Erro ao atualizar limite de preço:', error);
-            alert(`Erro ao salvar limite de preço: ${error.message}`);
+            showError(`Erro ao salvar limite de preço: ${error.message}`);
             return false;
         }
     };
 
-    // 🆕 FUNÇÃO PARA ATIVAR/DESATIVAR TODOS OS LIMITES
     const toggleAllPriceLimits = async (activate) => {
         try {
             const headers = await getAuthHeaders();
             const action = activate ? 'activate_all' : 'deactivate_all';
+            
+            // Toast de feedback instantâneo
+            showInfo(`${activate ? 'Ativando' : 'Desativando'} todos os limites...`, 2000);
 
             const response = await fetch('/api/toggle-all-price-limits', {
                 method: 'POST',
@@ -825,22 +907,24 @@ export const useProducts = () => {
                 // Recarregar produtos para refletir mudanças de visibilidade
                 await fetchInitialData();
                 console.log(result.message);
-                alert(result.message);
+                showSuccess(result.message); // Toast em vez de alert
                 return true;
             } else {
                 throw new Error(result.error || 'Erro ao alterar todos os limites');
             }
         } catch (error) {
             console.error('Erro ao alterar todos os limites:', error);
-            alert(`Erro ao alterar limites: ${error.message}`);
+            showError(`Erro ao alterar limites: ${error.message}`); // Toast em vez de alert
             return false;
         }
     };
 
-    // 🆕 FUNÇÃO PARA MOSTRAR TODOS OS PRODUTOS OCULTOS
     const showAllHiddenProducts = async () => {
         try {
             const headers = await getAuthHeaders();
+            
+            // Toast de feedback instantâneo
+            showInfo('Mostrando todos os produtos ocultos...', 2000);
 
             const response = await fetch('/api/show-all-hidden-products', {
                 method: 'POST',
@@ -854,14 +938,14 @@ export const useProducts = () => {
                 await fetchInitialData();
                 await fetchHiddenProducts();
                 console.log(result.message);
-                alert(result.message);
+                showSuccess(result.message); // Toast em vez de alert
                 return true;
             } else {
                 throw new Error(result.error || 'Erro ao mostrar todos os produtos');
             }
         } catch (error) {
             console.error('Erro ao mostrar todos os produtos:', error);
-            alert(`Erro ao mostrar produtos: ${error.message}`);
+            showError(`Erro ao mostrar produtos: ${error.message}`); // Toast em vez de alert
             return false;
         }
     };
@@ -914,6 +998,15 @@ export const useProducts = () => {
         hiddenProducts,
         priceLimits,
         loadingHidden,
+
+        // Estados e funções para toast notifications
+        toasts,
+        addToast,
+        removeToast,
+        showSuccess,
+        showError,
+        showWarning,
+        showInfo,
 
         // Functions existentes
         fetchPriceHistory,

@@ -1,4 +1,6 @@
-export const Layout = ({ children, activeTab, setActiveTab, userRole, handleLogin, handleLogout, showLogin, setShowLogin, loginCreds, setLoginCreds }) => {
+import ToastContainer from './ToastContainer';
+
+export const Layout = ({ children, activeTab, setActiveTab, userRole, handleLogin, handleLogout, showLogin, setShowLogin, loginCreds, setLoginCreds, toasts, onRemoveToast }) => {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
       <header className="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
@@ -113,6 +115,9 @@ export const Layout = ({ children, activeTab, setActiveTab, userRole, handleLogi
           </div>
         </div>
       )}
+      
+      {/* Sistema de Notificações Toast */}
+      <ToastContainer toasts={toasts} onRemoveToast={onRemoveToast} />
     </div>
   );
 };

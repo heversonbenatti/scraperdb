@@ -236,8 +236,15 @@ export default function Home() {
     fetchHiddenProducts,
     fetchPriceLimits,
     updatePriceLimit,
-    toggleAllPriceLimits,      // 🆕 NOVA FUNÇÃO
-    showAllHiddenProducts      // 🆕 NOVA FUNÇÃO
+    toggleAllPriceLimits,
+    showAllHiddenProducts,
+    // Sistema de toast notifications
+    toasts,
+    removeToast,
+    showSuccess,
+    showError,
+    showWarning,
+    showInfo
   } = useProducts();
 
   const [editingConfig, setEditingConfig] = useState(null);
@@ -586,6 +593,8 @@ export default function Home() {
       setShowLogin={setShowLogin}
       loginCreds={loginCreds}
       setLoginCreds={setLoginCreds}
+      toasts={toasts}
+      onRemoveToast={removeToast}
     >
       {activeTab === 'home' && (
         <div className="animate-fade-in">
