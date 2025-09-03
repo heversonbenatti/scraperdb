@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/Layout";
 import { PriceChart } from "@/components/PriceChart";
-import { ScrapingDashboard } from "@/components/ScrapingDashboard";
+
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { supabaseClient } from "@/utils/supabase";
@@ -102,6 +102,170 @@ const PriceLimitCard = ({ category, limit, onUpdate }) => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// Componente para status dos scrapers
+const ScrapersStatus = () => {
+  const [scraperData, setScraperData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const fetchScraperStats = async () => {
+    try {
+      const response = await fetch('/api/scraper-stats');
+      const data = await response.json();
+      
+      if (data.success) {
+        setScraperData(data);
+        setLastUpdate(new Date());
+        setError(null);
+      } else {
+        throw new Error(data.error || 'Failed to fetch scraper data');
+      }
+    } catch (err) {
+      console.error('Error fetching scraper stats:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Buscar dados iniciais
+    fetchScraperStats();
+
+    // Auto-refresh a cada 1 minuto
+    const interval = setInterval(fetchScraperStats, 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="bg-gray-700 rounded-lg p-4">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500"></div>
+          <span className="ml-3 text-gray-400">Carregando status dos scrapers...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-gray-700 rounded-lg p-4 border border-red-500">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-red-400 mb-2">Erro ao carregar status</h3>
+            <p className="text-sm text-gray-400">{error}</p>
+          </div>
+          <button
+            onClick={fetchScraperStats}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-md text-sm transition-colors"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!scraperData) {
+    return null;
+  }
+
+  const { stats, total, timestamp } = scraperData;
+
+  return (
+    <div>
+      {/* Header com info de atualização */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-purple-400">Total: {total}</span>
+          <span className="text-sm text-gray-400">preços alterados</span>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-gray-400">
+            Última atualização: {lastUpdate ? lastUpdate.toLocaleTimeString('pt-BR') : 'N/A'}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            Auto-refresh a cada 1 minuto
+          </div>
+        </div>
+      </div>
+
+      {/* Cards dos scrapers */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {stats.map((stat) => (
+          <div
+            key={stat.website}
+            className={`bg-gray-700 rounded-lg p-4 border-l-4 ${
+              stat.statusColor === 'green' ? 'border-green-500' :
+              stat.statusColor === 'yellow' ? 'border-yellow-500' :
+              stat.statusColor === 'red' ? 'border-red-500' :
+              stat.statusColor === 'blue' ? 'border-blue-500' :
+              'border-gray-500'
+            }`}
+          >
+            {/* Header do Card */}
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold uppercase tracking-wide">
+                {stat.websiteName}
+              </h3>
+              <span className="text-2xl">{stat.statusIcon}</span>
+            </div>
+
+            {/* Contador principal */}
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white mb-2">
+                {stat.count}
+              </div>
+              <div className="text-sm text-gray-400">
+                preços alterados
+              </div>
+            </div>
+
+            {/* Status Badge */}
+            <div className="mt-3 text-center">
+              <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
+                stat.statusColor === 'green' ? 'bg-green-600 text-green-100' :
+                stat.statusColor === 'yellow' ? 'bg-yellow-600 text-yellow-100' :
+                stat.statusColor === 'red' ? 'bg-red-600 text-red-100' :
+                stat.statusColor === 'blue' ? 'bg-blue-600 text-blue-100' :
+                'bg-gray-600 text-gray-100'
+              }`}>
+                {stat.status === 'normal' ? 'Normal' :
+                 stat.status === 'baixo' ? 'Pouca Atividade' :
+                 stat.status === 'alto' ? 'Alta Atividade' :
+                 stat.status === 'offline' ? 'Sem Atividade' :
+                 'Desconhecido'}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer informativo */}
+      <div className="mt-4 p-3 bg-gray-700 rounded-md">
+        <p className="text-xs text-gray-400 mb-2">Legenda de Status:</p>
+        <div className="flex flex-wrap gap-4 text-xs">
+          <span className="flex items-center gap-1">
+            <span>✅</span> Normal (atividade padrão)
+          </span>
+          <span className="flex items-center gap-1">
+            <span>⚠️</span> Pouca Atividade (&lt;10 alterações)
+          </span>
+          <span className="flex items-center gap-1">
+            <span>🔥</span> Alta Atividade (&gt;100 alterações)
+          </span>
+          <span className="flex items-center gap-1">
+            <span>🔴</span> Sem Atividade (0 alterações)
+          </span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -248,7 +412,7 @@ export default function Home() {
   } = useProducts();
 
   const [editingConfig, setEditingConfig] = useState(null);
-  const [adminActiveTab, setAdminActiveTab] = useState('searches'); // 'searches', 'price_limits', 'hidden_products'
+  const [adminActiveTab, setAdminActiveTab] = useState('searches'); // 'searches', 'price_limits', 'hidden_products', 'scrapers'
 
   const calculateBuildTotal = (build) => {
     if (!build.categories || !products.length) return 0;
@@ -598,13 +762,8 @@ export default function Home() {
     >
       {activeTab === 'home' && (
         <div className="animate-fade-in">
-          {/* Container Grid para duas colunas no desktop */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-            {/* Coluna 1: Dashboard de Status dos Scrapers */}
-            <ScrapingDashboard />
-
-            {/* Coluna 2: Melhores Ofertas */}
+          {/* Melhores Ofertas */}
+          <div className="max-w-4xl mx-auto">
             <div className="bg-gray-800 rounded-lg p-4 sm:p-6 border border-gray-700">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
                 <h2 className="text-xl sm:text-2xl font-bold flex items-center">
@@ -1160,6 +1319,15 @@ export default function Home() {
                 >
                   👁️‍🗨️ Produtos Ocultos
                 </button>
+                <button
+                  onClick={() => setAdminActiveTab('scrapers')}
+                  className={`px-4 py-2 rounded-md font-medium transition-colors text-sm ${adminActiveTab === 'scrapers'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                >
+                  🤖 Scrapers
+                </button>
               </div>
 
               {/* Aba de Configurações de Busca */}
@@ -1457,6 +1625,19 @@ export default function Home() {
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Aba de Scrapers */}
+              {adminActiveTab === 'scrapers' && (
+                <div>
+                  <div className="mb-4">
+                    <h3 className="text-lg font-bold mb-2">Status dos Scrapers</h3>
+                    <p className="text-sm text-gray-400">Preços adicionados/alterados nos últimos 15 minutos por loja</p>
+                  </div>
+                  
+                  {/* Componente de scrapers simplificado */}
+                  <ScrapersStatus />
                 </div>
               )}
             </div>
