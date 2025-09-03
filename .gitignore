@@ -40,8 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 telegram_bot
-scraperall.py
-scraperpichau.py
 db.sql
 PLANO_IMPLEMENTACAO_NOVAS_FUNCIONALIDADES.md
 supabasePolicies.json
