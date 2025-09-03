@@ -219,7 +219,7 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
         return False
 
 def save_product(name, price, website, category, product_link, keywords_matched=None):
-    """Save product with optimized duplicate checking and availability tracking"""
+    """Save product with optimized duplicate checking"""
     if price <= 10.0:
         return
     
@@ -240,21 +240,15 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                     product_link=product_link
                 ))
                 product_id = result.inserted_primary_key[0]
-                print(f"✅ Novo produto criado: {name} (ID: {product_id})")
-            
-            # Call availability function to mark as available
-            conn.execute(select("SELECT mark_product_available(%s, %s, %s)"), (product_id, price, website))
             
             # Get last price
             last_price_query = select(
                 prices.c.price,
                 prices.c.check_count,
                 prices.c.id,
-                prices.c.last_checked_at,
-                prices.c.price_found
+                prices.c.last_checked_at
             ).where(
-                prices.c.product_id == product_id,
-                prices.c.price_found == True  # Only consider valid prices
+                prices.c.product_id == product_id
             ).order_by(
                 prices.c.last_checked_at.desc()
             ).limit(1)
@@ -267,14 +261,11 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                 conn.execute(prices.insert().values(
                     product_id=product_id,
                     price=price,
-                    price_found=True,
-                    scrape_attempt_at=current_time,
                     collected_at=current_time,
                     last_checked_at=current_time,
                     price_changed_at=current_time,
                     check_count=1
                 ))
-                print(f"💰 Primeiro preço salvo: R$ {price:.2f} para {name}")
             else:
                 last_price = float(last_price_result.price)
                 current_price = float(price)
@@ -284,15 +275,12 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                     conn.execute(prices.insert().values(
                         product_id=product_id,
                         price=current_price,
-                        price_found=True,
-                        scrape_attempt_at=current_time,
                         collected_at=current_time,
                         last_checked_at=current_time,
                         price_changed_at=current_time,
                         check_count=1
                     ))
                     
-                    print(f"📈 Preço alterado: R$ {last_price:.2f} → R$ {current_price:.2f} ({name})")
                     check_promotion_and_notify(product_id, name, current_price, website)
                 else:
                     # Same price - update counters
@@ -304,36 +292,13 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         .where(prices.c.id == last_price_result.id)
                         .values(
                             last_checked_at=current_time,
-                            check_count=new_check_count,
-                            scrape_attempt_at=current_time
+                            check_count=new_check_count
                         )
                     )
-                    print(f"✅ Preço confirmado: R$ {current_price:.2f} (check #{new_check_count}) - {name}")
 
     except Exception as e:
         print(f"❌ Erro ao salvar produto: {e}")
 
-def mark_product_unavailable(product_name, website, category):
-    """Mark a product as unavailable when price is not found"""
-    try:
-        with engine.begin() as conn:
-            # Find product by name and website
-            query = select(products.c.id, products.c.name).where(
-                products.c.name == product_name,
-                products.c.website == website
-            )
-            product_result = conn.execute(query).first()
-            
-            if product_result:
-                product_id = product_result.id
-                # Call database function to mark as unavailable
-                conn.execute(select("SELECT mark_product_unavailable(%s, %s)"), (product_id, website))
-                print(f"⚠️ Produto indisponível: {product_name}")
-            else:
-                print(f"❓ Produto não encontrado no BD para marcar como indisponível: {product_name}")
-                
-    except Exception as e:
-        print(f"❌ Erro ao marcar produto como indisponível: {e}")
 
 def get_search_configs_with_keywords():
     """Get all active search configurations with their keyword groups"""
@@ -375,30 +340,13 @@ def get_search_configs_with_keywords():
         return []
 
 def scrape_pichau(driver, wait, query, wordlist, category):
-    """Scrape Pichau with enhanced price parsing and availability tracking"""
+    """Scrape Pichau with enhanced price parsing"""
     if stop_event.is_set():
         return 0, 0
     
     print(f"\nBuscando {query} em: PICHAU")
     products_found = 0
     products_saved = 0
-    products_unavailable = 0
-    
-    # Track products that should exist but weren't found
-    existing_products = set()
-    try:
-        with engine.begin() as conn:
-            existing_query = select(products.c.name).where(
-                products.c.website == "pichau",
-                products.c.category == category,
-                products.c.is_available == True
-            )
-            existing_result = conn.execute(existing_query).fetchall()
-            existing_products = {row.name for row in existing_result}
-    except Exception as e:
-        print(f"⚠️ Erro ao buscar produtos existentes: {e}")
-    
-    found_products = set()
     
     try:
         base_url = "https://www.pichau.com.br"
@@ -427,45 +375,27 @@ def scrape_pichau(driver, wait, query, wordlist, category):
                     products_found += 1
                     
                     product_link = base_url + card.get("href")
-                    found_products.add(name)
-                    
                     price_elem = card.select_one("div.mui-12athy2-price_vista, .price, [data-testid='price']")
                     
                     if price_elem:
                         price_text = price_elem.get_text(strip=True).replace("\xa0", " ")
-                        try:
-                            price = normalize_price_pichau(price_text)
-                            
-                            if price > 10.0:
-                                save_product(name, price, "pichau", category, product_link, matched_keywords)
-                                products_saved += 1
-                            else:
-                                print(f"⚠️ Preço muito baixo ignorado: R$ {price:.2f} - {name}")
-                        except Exception as pe:
-                            print(f"❌ Erro ao processar preço '{price_text}': {pe}")
-                            mark_product_unavailable(name, "pichau", category)
-                            products_unavailable += 1
-                    else:
-                        print(f"❌ Preço não encontrado para: {name}")
-                        mark_product_unavailable(name, "pichau", category)
-                        products_unavailable += 1
+                        price = normalize_price_pichau(price_text)
+                        
+                        if price > 10.0:
+                            save_product(name, price, "pichau", category, product_link, matched_keywords)
+                            products_saved += 1
                     
             except Exception as e:
                 print(f"❌ Erro parsing produto Pichau: {e}")
-        
-        # Check for products that existed but weren't found in this scrape
-        missing_products = existing_products - found_products
-        for missing_product in missing_products:
-            if len(missing_products) <= 10:  # Only log if reasonable number
-                print(f"🔍 Produto não encontrado na busca: {missing_product}")
-            mark_product_unavailable(missing_product, "pichau", category)
-            products_unavailable += 1
                 
     except Exception as e:
         print(f"❌ Erro: {e}")
         return 0, 0
     
-    print(f"📊 PICHAU - Encontrados: {products_found} | Salvos: {products_saved} | Indisponíveis: {products_unavailable}")
+    if products_found > 0:
+        print(f"{products_found} produtos encontrados e {products_saved} salvos")
+    else:
+        print("Nenhum produto encontrado")
     
     return products_found, products_saved
 
