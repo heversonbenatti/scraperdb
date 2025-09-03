@@ -10,34 +10,25 @@ export default async function handler(req, res) {
     const fifteenMinutesAgo = new Date();
     fifteenMinutesAgo.setMinutes(fifteenMinutesAgo.getMinutes() - 15);
 
-    // Buscar produtos que tiveram preços alterados/adicionados nos últimos 15 minutos
-    const { data: priceChanges, error } = await supabaseClient
-      .from('prices')
-      .select(`
-        product_id,
-        price,
-        last_checked_at,
-        products!inner(
-          website,
-          name,
-          is_hidden
-        )
-      `)
-      .gte('last_checked_at', fifteenMinutesAgo.toISOString())
-      .eq('products.is_hidden', false);
-
-    if (error) {
-      console.error('Error fetching price changes:', error);
-      return res.status(500).json({ error: 'Failed to fetch price changes' });
-    }
-
-    // Agrupar por website e contar
+    // Lista de websites incluindo Pichau
     const websites = ['kabum', 'terabyte', 'pichau'];
     const scraperStats = [];
 
     for (const website of websites) {
-      const websiteChanges = priceChanges?.filter(p => p.products.website === website) || [];
-      const count = websiteChanges.length;
+      // Contar produtos atualizados nos últimos 15 minutos
+      const { data: recentUpdates, error: recentError } = await supabaseClient
+        .from('prices')
+        .select('product_id, products!inner(website)')
+        .gte('last_checked_at', fifteenMinutesAgo.toISOString())
+        .eq('products.website', website)
+        .eq('products.is_hidden', false);
+
+      if (recentError) {
+        console.error(`Error fetching recent updates for ${website}:`, recentError);
+        // Continua mesmo com erro, mas conta como 0
+      }
+
+      const count = recentUpdates?.length || 0;
       
       // Status baseado na quantidade
       let status = 'normal';

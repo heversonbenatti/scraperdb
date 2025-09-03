@@ -194,6 +194,13 @@ const ScrapersStatus = () => {
           <div className="text-xs text-gray-500 mt-1">
             Auto-refresh a cada 1 minuto
           </div>
+          <button
+            onClick={() => window.open('/api/debug-scrapers', '_blank')}
+            className="mt-2 px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
+            title="Debug: Ver dados detalhados"
+          >
+            🔍 Debug
+          </button>
         </div>
       </div>
 
