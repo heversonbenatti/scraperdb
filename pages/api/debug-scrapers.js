@@ -6,76 +6,87 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Data de 15 minutos atrás
-    const fifteenMinutesAgo = new Date();
-    fifteenMinutesAgo.setMinutes(fifteenMinutesAgo.getMinutes() - 15);
+    console.log('Starting debug API...');
+    
+    // Primeiro, vamos ver se a conexão com supabase funciona
+    const { data: basicTest, error: basicError } = await supabaseClient
+      .from('products')
+      .select('website')
+      .limit(5);
 
-    // Buscar os dados mais recentes de cada website
-    const { data: allPrices, error } = await supabaseClient
+    if (basicError) {
+      console.error('Basic connection error:', basicError);
+      return res.status(500).json({ 
+        error: 'Basic connection failed',
+        details: basicError.message 
+      });
+    }
+
+    console.log('Basic test successful, found products:', basicTest?.length);
+
+    // Agora vamos tentar buscar dados da tabela prices
+    const { data: pricesTest, error: pricesError } = await supabaseClient
+      .from('prices')
+      .select('product_id, last_checked_at')
+      .limit(10);
+
+    if (pricesError) {
+      console.error('Prices table error:', pricesError);
+      return res.status(500).json({ 
+        error: 'Prices table access failed',
+        details: pricesError.message,
+        basicTestWorked: true,
+        basicTestCount: basicTest?.length
+      });
+    }
+
+    console.log('Prices test successful, found records:', pricesTest?.length);
+
+    // Tentar o join
+    const { data: joinTest, error: joinError } = await supabaseClient
       .from('prices')
       .select(`
         product_id,
-        price,
         last_checked_at,
-        created_at,
-        updated_at,
-        products!inner(
-          website,
-          name,
-          is_hidden
+        products(
+          website
         )
       `)
-      .eq('products.is_hidden', false)
-      .order('last_checked_at', { ascending: false })
-      .limit(100);
+      .limit(5);
 
-    if (error) {
-      console.error('Error fetching debug data:', error);
-      return res.status(500).json({ error: 'Failed to fetch debug data' });
-    }
-
-    // Agrupar por website
-    const websiteDebug = {};
-    const websites = ['kabum', 'terabyte', 'pichau'];
-
-    for (const website of websites) {
-      const websitePrices = allPrices?.filter(p => p.products.website === website) || [];
-      
-      // Preços nos últimos 15 minutos
-      const recentPrices = websitePrices.filter(p => 
-        new Date(p.last_checked_at) >= fifteenMinutesAgo
-      );
-
-      // Últimos 5 registros desse website
-      const latestPrices = websitePrices.slice(0, 5);
-
-      websiteDebug[website] = {
-        totalCount: websitePrices.length,
-        recentCount: recentPrices.length,
-        latest: latestPrices.map(p => ({
-          product_name: p.products.name.substring(0, 50) + '...',
-          price: p.price,
-          last_checked_at: p.last_checked_at,
-          created_at: p.created_at,
-          updated_at: p.updated_at,
-          minutes_ago: Math.round((new Date() - new Date(p.last_checked_at)) / (1000 * 60))
-        }))
-      };
+    if (joinError) {
+      console.error('Join test error:', joinError);
+      return res.status(500).json({ 
+        error: 'Join test failed',
+        details: joinError.message,
+        pricesTestWorked: true,
+        pricesTestCount: pricesTest?.length
+      });
     }
 
     return res.status(200).json({
       success: true,
       timestamp: new Date().toISOString(),
-      fifteenMinutesAgo: fifteenMinutesAgo.toISOString(),
-      debug: websiteDebug,
-      totalRecords: allPrices?.length || 0
+      basicTest: {
+        count: basicTest?.length,
+        websites: [...new Set(basicTest?.map(p => p.website))]
+      },
+      pricesTest: {
+        count: pricesTest?.length,
+        latestTimestamp: pricesTest?.[0]?.last_checked_at
+      },
+      joinTest: {
+        count: joinTest?.length,
+        sample: joinTest?.slice(0, 3)
+      }
     });
 
   } catch (error) {
-    console.error('Debug error:', error);
+    console.error('Debug API error:', error);
     return res.status(500).json({
       error: 'Internal server error',
-      details: error.message
+      details: error.message,
+      stack: error.stack
     });
   }
 }
