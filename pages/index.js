@@ -115,7 +115,7 @@ const ScrapersStatus = () => {
 
   const fetchScraperStats = async () => {
     try {
-      const response = await fetch('/api/scraper-stats-v2');
+      const response = await fetch('/api/scraper-stats-v3');
       const data = await response.json();
       
       if (data.success) {
