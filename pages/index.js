@@ -1247,20 +1247,20 @@ export default function Home() {
                         R$ {product.currentPrice.toFixed(2)}
                       </p>
 
-                      {product.weightedAverage && product.weightedAverage !== product.currentPrice && (
-                        (() => {
-                          const realChange = ((product.currentPrice - product.weightedAverage) / product.weightedAverage) * 100;
-                          return (
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <span className={`text-xs ${realChange < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {realChange > 0 ? '+' : ''}{realChange.toFixed(1)}%
-                              </span>
-                              <span className="text-xs text-gray-500 line-through whitespace-nowrap overflow-hidden text-ellipsis">
-                                R$ {product.weightedAverage.toFixed(2)}
-                              </span>
-                            </div>
-                          );
-                        })()
+                      {/* 🧮 NOVA LÓGICA: Exibir desconto calculado corretamente */}
+                      {product.hasValidHistory && product.discountPercent !== undefined && product.weightedAverage && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className={`text-xs font-medium ${
+                            product.discountPercent < 0 ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {product.discountPercent < 0 ? '-' : '+'}{
+                              Math.abs(product.discountPercent).toFixed(1)
+                            }%
+                          </span>
+                          <span className="text-xs text-gray-500 line-through whitespace-nowrap overflow-hidden text-ellipsis">
+                            R$ {product.weightedAverage.toFixed(2)}
+                          </span>
+                        </div>
                       )}
                     </div>
 
