@@ -115,6 +115,27 @@ const ScrapersStatus = () => {
 
   const fetchScraperStats = async () => {
     try {
+      // 🔄 Executar manutenção do sistema junto com atualização dos scrapers
+      console.log('🔄 Executando manutenção do sistema...');
+      
+      // Chamar manutenção em paralelo (não bloquear se falhar)
+      fetch('/api/system-maintenance', { method: 'POST' })
+        .then(response => response.json())
+        .then(maintenanceResult => {
+          if (maintenanceResult.success) {
+            console.log('✅ Manutenção concluída:', maintenanceResult.message);
+            if (maintenanceResult.actions_performed.products_hidden > 0 || maintenanceResult.actions_performed.products_reactivated > 0) {
+              console.log(`🔄 Ações: ${maintenanceResult.actions_performed.products_hidden} ocultos, ${maintenanceResult.actions_performed.products_reactivated} reativados`);
+            }
+          } else {
+            console.warn('⚠️ Erro na manutenção:', maintenanceResult.error);
+          }
+        })
+        .catch(error => {
+          console.warn('⚠️ Erro ao executar manutenção:', error.message);
+        });
+      
+      // Buscar stats dos scrapers (principal)
       const response = await fetch('/api/scraper-stats-v3');
       const data = await response.json();
       
@@ -283,6 +304,7 @@ const HiddenProductCard = ({ product, onShow }) => {
     switch (reason) {
       case 'manual': return '🙅 Escondido manualmente';
       case 'price_limit_exceeded': return '💰 Preço acima do limite';
+      case 'outdated': return '🕐 Não atualizado (24h)';
       default: return '❓ Motivo desconhecido';
     }
   };
@@ -1616,6 +1638,7 @@ export default function Home() {
                               <span>📋 Total: {hiddenProducts.length}</span>
                               <span>🙅 Manual: {hiddenProducts.filter(p => p.hidden_reason === 'manual').length}</span>
                               <span>💰 Preço: {hiddenProducts.filter(p => p.hidden_reason === 'price_limit_exceeded').length}</span>
+                              <span>🕐 Desatualizados: {hiddenProducts.filter(p => p.hidden_reason === 'outdated').length}</span>
                             </div>
                           </div>
 
