@@ -417,7 +417,25 @@ def scrape_kabum(driver, wait, query, wordlist, category):
                             continue
                 
                 if price and price > 10.0 and product_link:
-                    save_product(base_name, price, "kabum", category, product_link, matched_keywords)
+                    # Extrair ID do produto da URL da Kabum
+                    product_id = None
+                    if "/produto/" in product_link:
+                        try:
+                            # URL format: https://www.kabum.com.br/produto/ID/nome-produto
+                            url_parts = product_link.split("/produto/")
+                            if len(url_parts) > 1:
+                                id_part = url_parts[1].split("/")[0]
+                                if id_part.isdigit():
+                                    product_id = id_part
+                        except:
+                            pass
+                    
+                    # Adicionar ID ao nome se encontrado
+                    final_name = base_name
+                    if product_id:
+                        final_name = f"{base_name} #{product_id}"
+                    
+                    save_product(final_name, price, "kabum", category, product_link, matched_keywords)
                     products_saved += 1
                     
             except:
