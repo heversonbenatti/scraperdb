@@ -146,52 +146,85 @@ def normalize_price_pichau(price_text):
         return 0.0
 
 def calculate_weighted_average(product_id):
-    """Calculate historical weighted average excluding current price"""
+    """Calculate historical weighted average using the CORRECT logic with check_count weighting"""
     try:
         with engine.begin() as conn:
+            # Buscar TODOS os registros históricos, ordenados por data (mais antigo primeiro)
             query = select(
                 prices.c.price,
                 prices.c.check_count,
                 prices.c.price_changed_at
             ).where(
                 prices.c.product_id == product_id
-            ).order_by(prices.c.price_changed_at.desc())
+            ).order_by(prices.c.price_changed_at.asc())  # Mais antigo primeiro
             
-            all_prices = conn.execute(query).fetchall()
+            all_price_records = conn.execute(query).fetchall()
             
-            if len(all_prices) <= 1:
+            if len(all_price_records) <= 1:
                 return None
             
-            historical_prices = all_prices[1:]
+            # O último registro é o preço atual
+            current_record = all_price_records[-1]
+            current_price = float(current_record.price)
+            current_check_count = current_record.check_count or 1
             
-            if not historical_prices:
+            # Calcular média histórica ponderada usando TODOS os registros
+            total_weighted_sum = 0
+            total_check_counts = 0
+            
+            # Para todos os registros ANTERIORES (exceto o atual)
+            for record in all_price_records[:-1]:
+                price = float(record.price)
+                check_count = max(1, record.check_count or 1)
+                
+                weighted_value = price * check_count
+                total_weighted_sum += weighted_value
+                total_check_counts += check_count
+            
+            # Para o registro ATUAL, usar (check_count - 1) se > 1
+            # Isso evita que o preço atual influencie sua própria média de referência
+            if current_check_count > 1:
+                current_contribution_count = current_check_count - 1
+                current_weighted_value = current_price * current_contribution_count
+                total_weighted_sum += current_weighted_value
+                total_check_counts += current_contribution_count
+            
+            # Se não há histórico suficiente, retornar None
+            if total_check_counts == 0:
                 return None
             
-            total_weight = sum(max(1, p.check_count or 1) for p in historical_prices)
-            weighted_sum = sum(float(p.price) * max(1, p.check_count or 1) for p in historical_prices)
+            # Calcular média ponderada
+            weighted_average = total_weighted_sum / total_check_counts
             
-            return weighted_sum / total_weight if total_weight > 0 else None
+            return weighted_average
                 
     except Exception as e:
         print(f"Erro ao calcular média histórica: {e}")
         return None
 
 def check_promotion_and_notify(product_id, product_name, current_price, website):
-    """Check for real promotions and notify"""
+    """Check for real promotions using CORRECT discount calculation and notify"""
     try:
         weighted_average = calculate_weighted_average(product_id)
         
         if not weighted_average or weighted_average == current_price:
             return False
         
-        discount_percent = ((weighted_average - current_price) / weighted_average) * 100
+        # 🧮 NOVA LÓGICA: Cálculo correto de desconto
+        # discountPercent = ((preço_atual - média_histórica) / média_histórica) × 100
+        discount_percent = ((current_price - weighted_average) / weighted_average) * 100
         
-        is_significant_discount = discount_percent >= 10
-        has_minimum_price = current_price >= 20
-        is_reasonable_discount = discount_percent <= 80
+        # Verificar se é desconto real (valor negativo = preço atual menor que média)
+        is_actual_discount = discount_percent < 0
+        actual_discount_percent = abs(discount_percent) if is_actual_discount else 0
+        
+        is_significant_discount = actual_discount_percent >= 10  # Mínimo 10% de desconto
+        has_minimum_price = current_price >= 20                  # Preço mínimo R$ 20
+        is_reasonable_discount = actual_discount_percent <= 80   # Máximo 80% de desconto
         discount_amount = weighted_average - current_price
         
-        is_promotion = (is_significant_discount and 
+        is_promotion = (is_actual_discount and 
+                       is_significant_discount and
                        has_minimum_price and 
                        is_reasonable_discount and 
                        discount_amount > 0)
@@ -199,18 +232,25 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
         if is_promotion:
             try:
                 bot = TelegramPriceBot()
-                message = f"🚨 PROMOÇÃO REAL DETECTADA\n\n"
+                message = f"🚨 PROMOÇÃO REAL DETECTADA (Nova Lógica)\n\n"
                 message += f"Produto: {product_name}\n"
                 message += f"Site: {website.upper()}\n\n"
                 message += f"Preço atual: R$ {current_price:.2f}\n"
                 message += f"Média histórica: R$ {weighted_average:.2f}\n"
-                message += f"Desconto: {discount_percent:.1f}%\n"
+                message += f"Desconto: {actual_discount_percent:.1f}%\n"
                 message += f"Economia: R$ {discount_amount:.2f}"
                 
                 asyncio.run(bot.send_message(message))
+                print(f"✅ Notificação enviada: {product_name} - {actual_discount_percent:.1f}% OFF")
                 return True
             except Exception as e:
                 print(f"❌ Erro ao enviar notificação: {e}")
+        else:
+            # Debug: mostrar por que não é promoção
+            if not is_actual_discount:
+                print(f"🔴 {product_name}: Preço MAIOR que média (+{actual_discount_percent:.1f}%)")
+            elif not is_significant_discount:
+                print(f"🟡 {product_name}: Desconto insuficiente ({actual_discount_percent:.1f}%)")
         
         return False
         
@@ -640,9 +680,24 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    print("🚀 Iniciando PC Scraper v3.0 - Full Chrome Edition")
-    print(f"Sistema: {'Windows' if is_windows else 'Linux'} | Driver: Chrome")
+    system_name = f"{'Windows' if is_windows else 'Linux'}"
+    print(f"🚀 Iniciando PC Scraper v3.0 - Pichau Edition")
+    print(f"Sistema: {system_name} | Driver: Chrome")
     print("Pressione Ctrl+C para parar")
+    
+    # 📱 NOTIFICAÇÃO DE INICIALIZAÇÃO
+    try:
+        bot = TelegramPriceBot()
+        startup_message = f"🚀 SCRAPER INICIADO\n\n"
+        startup_message += f"📋 Scraper: PICHAU\n"
+        startup_message += f"💻 Sistema: {system_name}\n"
+        startup_message += f"🕐 Hora: {datetime.now(brasilia).strftime('%d/%m/%Y às %H:%M:%S')}\n"
+        startup_message += f"🔧 Versão: 3.0 (Nova Lógica de Desconto)"
+        
+        asyncio.run(bot.send_message(startup_message))
+        print("✅ Notificação de inicialização enviada para Telegram")
+    except Exception as e:
+        print(f"⚠️ Erro ao enviar notificação de inicialização: {e}")
     
     # Initial cleanup
     cleanup_browser_processes()
