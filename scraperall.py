@@ -171,7 +171,7 @@ def calculate_weighted_average(product_id):
         print(f"Erro ao calcular média histórica: {e}")
         return None
 
-def check_promotion_and_notify(product_id, product_name, current_price, website):
+def check_promotion_and_notify(product_id, product_name, current_price, product_link):
     """Check for real promotions using CORRECT discount calculation and notify"""
     try:
         weighted_average = calculate_weighted_average(product_id)
@@ -187,27 +187,24 @@ def check_promotion_and_notify(product_id, product_name, current_price, website)
         is_actual_discount = discount_percent < 0
         actual_discount_percent = abs(discount_percent) if is_actual_discount else 0
         
-        is_significant_discount = actual_discount_percent >= 10  # Mínimo 10% de desconto
+        is_significant_discount = actual_discount_percent >= 5  # Mínimo 5% de desconto
         has_minimum_price = current_price >= 20                  # Preço mínimo R$ 20
-        is_reasonable_discount = actual_discount_percent <= 80   # Máximo 80% de desconto
         discount_amount = weighted_average - current_price
         
         is_promotion = (is_actual_discount and 
                        is_significant_discount and
                        has_minimum_price and 
-                       is_reasonable_discount and 
                        discount_amount > 0)
         
         if is_promotion:
             try:
                 bot = TelegramPriceBot()
-                message = f"🚨 PROMOÇÃO REAL DETECTADA (Nova Lógica)\n\n"
-                message += f"Produto: {product_name}\n"
-                message += f"Site: {website.upper()}\n\n"
+                message = f" -- DESCONTO ENCONTRADO -- \n\n"
+                message += f"Produto: {product_name}\n\n"
                 message += f"Preço atual: R$ {current_price:.2f}\n"
-                message += f"Média histórica: R$ {weighted_average:.2f}\n"
+                message += f"Preço médio: R$ {weighted_average:.2f}\n"
                 message += f"Desconto: {actual_discount_percent:.1f}%\n"
-                message += f"Economia: R$ {discount_amount:.2f}"
+                message += f"{product_link}"
                 
                 asyncio.run(bot.send_message(message))
                 print(f"✅ Notificação enviada: {product_name} - {actual_discount_percent:.1f}% OFF")
@@ -290,7 +287,7 @@ def save_product(name, price, website, category, product_link, keywords_matched=
                         check_count=1
                     ))
                     
-                    check_promotion_and_notify(product_id, name, current_price, website)
+                    check_promotion_and_notify(product_id, name, current_price, product_link)
                 else:
                     # Same price - update counters
                     current_check_count = last_price_result.check_count or 0
