@@ -1727,7 +1727,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
               {/* Gráfico - ocupa 2 colunas no desktop */}
               <div className="lg:col-span-2">
-                <PriceChart data={priceHistory} />
+                <PriceChart data={priceHistory} interval={chartInterval} />
               </div>
 
               {/* Lista do histórico - ocupa 1 coluna */}
