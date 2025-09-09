@@ -187,7 +187,7 @@ def check_promotion_and_notify(product_id, product_name, current_price, product_
         is_actual_discount = discount_percent < 0
         actual_discount_percent = abs(discount_percent) if is_actual_discount else 0
         
-        is_significant_discount = actual_discount_percent >= 10  # Mínimo 5% de desconto
+        is_significant_discount = actual_discount_percent >= 5  # Mínimo 5% de desconto
         has_minimum_price = current_price >= 20                  # Preço mínimo R$ 20
         discount_amount = weighted_average - current_price
         
