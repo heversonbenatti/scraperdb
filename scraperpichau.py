@@ -678,7 +678,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
     
     system_name = f"{'Windows' if is_windows else 'Linux'}"
-    print(f"🚀 Iniciando PC Scraper v3.0 - Pichau Edition")
+    print(f"Iniciando PC Scraper v3.0 - Pichau Edition")
     print(f"Sistema: {system_name} | Driver: Chrome")
     print("Pressione Ctrl+C para parar")
     
@@ -692,9 +692,9 @@ if __name__ == "__main__":
         startup_message += f"🔧 Versão: 3.0 (Nova Lógica de Desconto)"
         
         asyncio.run(bot.send_message(startup_message))
-        print("✅ Notificação de inicialização enviada para Telegram")
+        print("Notificação de inicialização enviada para Telegram")
     except Exception as e:
-        print(f"⚠️ Erro ao enviar notificação de inicialização: {e}")
+        print(f"Erro ao enviar notificação de inicialização: {e}")
     
     # Initial cleanup
     cleanup_browser_processes()
