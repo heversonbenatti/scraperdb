@@ -392,7 +392,7 @@ def scrape_pichau(driver, wait, query, wordlist, category):
         driver.get(url)
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "[data-cy='list-product']")))
-        time.sleep(2)
+        time.sleep(7)
         
         soup = BeautifulSoup(driver.page_source, "html.parser")
         cards = soup.select("[data-cy='list-product']")
